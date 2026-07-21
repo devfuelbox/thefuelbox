@@ -133,7 +133,7 @@ export default function MobileSwipeStrip({ screenWidth: sw }: Props) {
 
   const routes = user 
     ? ['/home', '/menu', '/nutrition', '/orders', '/rewards', '/profile'] 
-    : ['/', '/menu', '/subscriptions']
+    : ['/', '/menu', '/plans']
   const pageCount = routes.length
 
   const getIndex = (path: string) => {

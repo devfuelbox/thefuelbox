@@ -1,4 +1,5 @@
 import { Sequelize, DataTypes, Model } from 'sequelize';
+import mysql2 from 'mysql2';
 
 const DB_HOST = process.env.DB_HOST || 'localhost';
 const DB_PORT = Number(process.env.DB_PORT) || 3306;
@@ -14,6 +15,7 @@ export function getSequelize(): Sequelize {
       host: DB_HOST,
       port: DB_PORT,
       dialect: 'mysql',
+      dialectModule: mysql2,
       logging: false,
     });
   }
