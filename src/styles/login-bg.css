@@ -1,0 +1,29 @@
+/* src/styles/login-bg.css */
+
+/* Full-screen background container for the login page */
+.login-bg {
+  /* Adjust the path to the actual image asset */
+  background: url('/src/assets/backgrounds/fitness.jpg') center/cover no-repeat;
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* Dark overlay with subtle blur to enhance glass effect */
+.login-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  z-index: 0;
+}
+
+/* Ensure inner content sits above the overlay */
+.login-bg > * {
+  position: relative;
+  z-index: 1;
+}
