@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation, Link, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import Navbar from './Navbar'
 import Footer from './Footer'
 import BottomNav from './BottomNav'
 import MobileSwipeStrip from './MobileSwipeStrip'
@@ -134,7 +133,6 @@ export default function PageLayout() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="flex min-h-screen flex-col overflow-x-hidden">
-      {!isAuthPage && <Navbar />}
 
       <main
         className={`flex-1 ${!isAuthPage ? 'pb-[calc(76px+env(safe-area-inset-bottom,0px))] md:pb-0' : ''} relative overflow-x-hidden`}
