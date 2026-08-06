@@ -1,5 +1,8 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { Home, Utensils, Receipt } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import { onboardingSupabase } from "@/lib/onboardingSupabaseClient";
@@ -2826,12 +2829,16 @@ export default function Onboarding() {
         input[type="range"]::-webkit-slider-thumb { cursor: pointer; }
         button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid ${C.yolk}; outline-offset: 3px; border-radius: 4px; }
         @media (prefers-reduced-motion: reduce) { .anim { animation: none; } * { transition: none !important; } }
+        /* Keep the last step clear of the fixed bottom nav on mobile/tablet */
+        @media (max-width: 1023px) {
+          .fuelbox-onboarding-main { padding-bottom: 128px !important; }
+        }
       `,
         }}
       />
 
       <div
-        className="mx-auto"
+        className="mx-auto fuelbox-onboarding-main"
         style={{ maxWidth: 440, padding: "0 22px 48px" }}
       >
         <div
@@ -2903,6 +2910,84 @@ export default function Onboarding() {
         )}
         {screen()}
       </div>
+
+      {/* Bottom navigation — mobile & tablet only (hidden on desktop) */}
+      <OnboardingBottomNav />
     </div>
+  );
+}
+
+// Fixed bottom navigation for the Customer Onboarding page — visible on mobile
+// and tablet viewports only (hidden at `lg`/desktop breakpoint and above).
+function OnboardingBottomNav() {
+  const pathname = usePathname() || "/";
+
+  const items = [
+    {
+      label: "Home",
+      icon: Home,
+      href: "/",
+      isActive: (p: string) => p === "/",
+    },
+    {
+      label: "Menu",
+      icon: Utensils,
+      href: "/menu",
+      isActive: (p: string) => p.startsWith("/menu"),
+    },
+    {
+      label: "Plans",
+      icon: Receipt,
+      href: "/plans",
+      isActive: (p: string) => p.startsWith("/plans"),
+    },
+  ];
+
+  return (
+    <nav
+      className="fixed bottom-0 left-0 right-0 z-40 lg:hidden"
+      style={{
+        background: "rgba(255,255,255,0.92)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        borderTop: "1px solid rgba(0,0,0,0.06)",
+        boxShadow: "0 -4px 24px rgba(0,0,0,0.06)",
+        paddingTop: 8,
+        paddingBottom: "calc(6px + env(safe-area-inset-bottom, 0px))",
+      }}
+    >
+      <div className="mx-auto flex max-w-md items-center justify-around px-2">
+        {items.map((item) => {
+          const Icon = item.icon;
+          const active = item.isActive(pathname);
+          return (
+            <Link
+              key={item.label}
+              href={item.href}
+              aria-label={item.label}
+              className="flex flex-col items-center gap-1 text-center transition-all duration-200 active:scale-95"
+              style={{ minWidth: 64 }}
+            >
+              <div
+                className={`flex items-center justify-center rounded-xl p-1 transition-colors duration-200 ${
+                  active
+                    ? "bg-[#16a34a]/10 text-[#16a34a]"
+                    : "text-gray-400 hover:text-gray-600"
+                }`}
+              >
+                <Icon className="h-5 w-5" />
+              </div>
+              <span
+                className={`text-[10px] tracking-wide transition-colors duration-200 ${
+                  active ? "font-bold text-[#16a34a]" : "font-semibold text-gray-500"
+                }`}
+              >
+                {item.label}
+              </span>
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
