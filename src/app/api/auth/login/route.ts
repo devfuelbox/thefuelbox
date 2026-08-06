@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDbModels } from '@/lib/db';
-import bcrypt from 'bcrypt';
+import bcrypt from "bcryptjs";
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fuelbox_dev_secret_change_in_production';
@@ -44,17 +44,24 @@ export async function POST(req: Request) {
 
     // Look up user in DB
     try {
-      const { User, Profile } = await getDbModels();
+      console.log(`[Auth] Attempting database login for: ${sanitisedEmail}`);
+      const { User } = await getDbModels();
       const user = await (User as any).findOne({ where: { email: sanitisedEmail } });
 
       if (user) {
+        console.log(`[Auth] User found in database: ${user.email} (Role: ${user.role}, Active: ${user.is_active})`);
+        if (!user.is_active) {
+          console.warn(`[Auth] Login rejected: Account is disabled for ${sanitisedEmail}`);
+          return NextResponse.json({ message: 'Account is disabled. Contact admin.' }, { status: 403 });
+        }
+
         const match = await bcrypt.compare(String(password), user.password_hash);
         if (!match) {
+          console.warn(`[Auth] Login rejected: Password mismatch for ${sanitisedEmail}`);
           return NextResponse.json({ message: 'Invalid email or password' }, { status: 401 });
         }
 
-        // Fetch profile for display name
-        const profile = await (Profile as any).findOne({ where: { id: user.id } });
+        console.log(`[Auth] Login successful for: ${sanitisedEmail}`);
         const payload = {
           sub: user.id,
           email: user.email,
@@ -68,29 +75,32 @@ export async function POST(req: Request) {
             id: user.id,
             email: user.email,
             role: user.role,
-            full_name: profile?.full_name || 'FuelBox User',
+            full_name: user.full_name || 'FuelBox User',
           },
         });
+      } else {
+        console.warn(`[Auth] Login rejected: User ${sanitisedEmail} not found in database.`);
       }
-    } catch (dbErr) {
-      console.warn('[Auth] DB lookup failed, using fallback check:', dbErr);
+    } catch (dbErr: any) {
+      console.error('[Auth] Database lookup failed:', dbErr.message || dbErr);
     }
 
-    // Fallback: allow admin login if DB is not yet seeded (dev only)
-    if (
-      sanitisedEmail === 'admin@fuelbox.com' &&
-      String(password) === 'admin123' &&
-      process.env.NODE_ENV !== 'production'
-    ) {
-      const token = jwt.sign(
-        { sub: 'admin-1', email: 'admin@fuelbox.com', role: 'admin' },
-        JWT_SECRET,
-        { expiresIn: JWT_EXPIRES_IN }
-      );
-      return NextResponse.json({
-        token,
-        user: { id: 'admin-1', email: 'admin@fuelbox.com', role: 'admin', full_name: 'Fuelbox Super Admin' },
-      });
+    // Fallback: allow admin/super_admin login if DB is not yet seeded (dev only)
+    if (process.env.NODE_ENV !== 'production') {
+      if (
+        sanitisedEmail === 'admin@fuelbox.com' &&
+        String(password) === 'admin123'
+      ) {
+        const token = jwt.sign(
+          { sub: 'admin-1', email: 'admin@fuelbox.com', role: 'super_admin' },
+          JWT_SECRET,
+          { expiresIn: JWT_EXPIRES_IN }
+        );
+        return NextResponse.json({
+          token,
+          user: { id: 'admin-1', email: 'admin@fuelbox.com', role: 'super_admin', full_name: 'Fuelbox Super Admin' },
+        });
+      }
     }
 
     return NextResponse.json({ message: 'Invalid email or password' }, { status: 401 });

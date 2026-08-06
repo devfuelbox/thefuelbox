@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSequelize, defineModels } from '@/lib/db';
-import bcrypt from 'bcrypt';
+import bcrypt from "bcryptjs";
 
 /**
  * Database Seeder

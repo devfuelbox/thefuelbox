@@ -14,6 +14,7 @@ export interface OnboardingAnswers {
   name: string
   email: string
   phone: string
+  preferredSlots?: string[]
 }
 
 export interface HealthMetrics {

@@ -204,27 +204,23 @@ export default function AiBot() {
   }, [user, menuItems, subscription, cartItems, recentOrders])
 
   const askAILive = async (userMessage: string): Promise<string> => {
-    if (!GROQ_API_KEY) return "AI is not configured. Please set VITE_GROQ_API_KEY in .env"
     try {
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${GROQ_API_KEY}`
+          "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: "llama-3.1-8b-instant",
+          systemPrompt: systemPromptRef.current,
           messages: [
-            { role: "system", content: systemPromptRef.current },
             { role: "user", content: userMessage }
-          ],
-          temperature: 0.7
+          ]
         })
       })
 
       const data = await response.json()
-      if (!response.ok) return `API Error: ${data.error?.message || 'Check your Groq key.'}`
-      return data.choices[0].message.content
+      if (!response.ok) return `API Error: ${data.error || 'Check server logs.'}`
+      return data.text
     } catch (error) {
       console.error(error)
       return "Connection error. Please try again."

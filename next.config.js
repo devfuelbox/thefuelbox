@@ -72,10 +72,10 @@ const nextConfig = {
           // Referrer policy — don't leak URL to third parties
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           // Permissions policy — disable unused browser features
-          {
-            key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()',
-          },
+          // {
+          //   key: 'Permissions-Policy',
+          //   value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()',
+          // },
           // HSTS — force HTTPS for 1 year (enable in production behind HTTPS)
           {
             key: 'Strict-Transport-Security',

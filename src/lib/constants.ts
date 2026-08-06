@@ -11,7 +11,7 @@ export const ROUTES = {
   CART: '/cart',
   CHECKOUT: '/checkout',
   NUTRITION: '/nutrition',
-  SUBSCRIPTIONS: '/subscriptions',
+  SUBSCRIPTIONS: '/plans',
   SUMMARY: '/summary',
   REFERRALS: '/referrals',
   FORGOT_PASSWORD: '/forgot-password',

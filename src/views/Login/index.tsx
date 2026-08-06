@@ -130,7 +130,7 @@ export default function Login() {
 
     console.log("Logged in Role:", role);
 
-    if (role === "admin") {
+    if (["admin", "super_admin", "sales", "verifier", "chef", "delivery_partner"].includes(role || "")) {
       navigate("/admin", { replace: true });
       return;
     }

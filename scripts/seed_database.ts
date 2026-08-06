@@ -66,6 +66,9 @@ async function seed() {
       email: { type: DataTypes.STRING, allowNull: false, unique: true },
       password_hash: { type: DataTypes.STRING, allowNull: false },
       role: { type: DataTypes.STRING, defaultValue: 'user' },
+      full_name: { type: DataTypes.STRING, allowNull: true },
+      phone: { type: DataTypes.STRING, allowNull: true },
+      is_active: { type: DataTypes.BOOLEAN, defaultValue: true },
     }, { underscored: true });
 
     const Profile = sequelize.define('profiles', {
@@ -147,27 +150,35 @@ async function seed() {
     await SubscriptionPlan.bulkCreate(plans);
     console.log(`Seeded ${plans.length} subscription plans.`);
 
-    // Seed Admin & Demo User
-    const bcrypt = await import('bcrypt');
-    const adminPass = await bcrypt.hash('admin123', 10);
-    const adminId = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+    // Seed Users for all roles
+    const bcrypt = await import('bcryptjs');
+    const pass = await bcrypt.hash('admin123', 10);
 
-    await User.create({
-      id: adminId,
-      email: 'admin@fuelbox.com',
-      password_hash: adminPass,
-      role: 'admin',
-    });
+    const users = [
+      { id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', email: 'admin@fuelbox.com', password_hash: pass, role: 'super_admin', full_name: 'Fuelbox Super Admin', phone: '+18005550199' },
+      { id: 'a1962345-ae40-4561-96f9-0184a8f58aab', email: 'sales@fuelbox.com', password_hash: pass, role: 'sales', full_name: 'Sales Team Lead', phone: '+18005550101' },
+      { id: 'aca10eef-8634-4ef1-aa6d-0fca6968a366', email: 'sales2@fuelbox.com', password_hash: pass, role: 'sales', full_name: 'Sales Associate', phone: '+18005550102' },
+      { id: '3108cd16-efa4-4292-9917-fb45756d7110', email: 'verifier@fuelbox.com', password_hash: pass, role: 'verifier', full_name: 'Order Verifier', phone: '+18005550201' },
+      { id: '63f69a2a-5ff3-4795-9ff3-bf640b6471fe', email: 'chef@fuelbox.com', password_hash: pass, role: 'chef', full_name: 'Head Chef', phone: '+18005550301' },
+      { id: 'a5f48f2a-c8ee-4beb-b9bc-c6342b9e56ed', email: 'chef2@fuelbox.com', password_hash: pass, role: 'chef', full_name: 'Sous Chef', phone: '+18005550302' },
+      { id: 'c2d3db55-aa9c-4fc1-86d3-2e47c79f4bb0', email: 'delivery@fuelbox.com', password_hash: pass, role: 'delivery_partner', full_name: 'Delivery Partner 1', phone: '+18005550401' },
+      { id: '3c69166f-2d7c-465f-975b-911002ba6593', email: 'delivery2@fuelbox.com', password_hash: pass, role: 'delivery_partner', full_name: 'Delivery Partner 2', phone: '+18005550402' },
+    ];
 
-    await Profile.create({
-      id: adminId,
-      email: 'admin@fuelbox.com',
-      full_name: 'Fuelbox Super Admin',
-      phone: '+18005550199',
-      referral_id: 'ADMIN01',
-    });
+    for (const u of users) {
+      const created = await User.create(u);
+      if (u.id) {
+        await Profile.create({
+          id: u.id,
+          email: u.email,
+          full_name: u.full_name,
+          phone: u.phone,
+          referral_id: u.role.toUpperCase() + '01',
+        });
+      }
+    }
 
-    console.log('Seeded Admin user (admin@fuelbox.com / admin123).');
+    console.log(`Seeded ${users.length} users (roles: super_admin, sales, verifier, chef, delivery_partner).`);
 
     await sequelize.close();
     console.log('Database seeding completed successfully!');

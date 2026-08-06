@@ -1,7 +1,7 @@
 'use client';
 
 import Footer from '@/components/layout/Footer';
-import BottomNav from '@/components/layout/BottomNav';
+// import BottomNav from '@/components/layout/BottomNav';
 import { usePathname } from 'next/navigation';
 import dynamic from 'next/dynamic';
 
@@ -24,7 +24,7 @@ export default function LayoutContent({ children }: { children: React.ReactNode 
     <>
       <main className={`flex-grow ${!isAdmin ? 'pb-16 md:pb-0' : ''}`}>{children}</main>
       {!isAdmin && <Footer />}
-      {!isAdmin && <BottomNav />}
+      {/* {!isAdmin && <BottomNav />} */}
       {!isAdmin && <GlobalAdNotification />}
       {!isAdmin && <GlobalAdPopup />}
       {!isAdmin && <AiBot />}

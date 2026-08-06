@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Check,
   Dumbbell,
@@ -139,6 +140,7 @@ const filters = [
 ];
 
 export default function PlansPage() {
+  const navigate = useNavigate();
   const [activeGoal, setActiveGoal] =
     useState<Goal>('all');
 
@@ -449,6 +451,13 @@ export default function PlansPage() {
                   {/* Button */}
                   <button
                     type="button"
+                    onClick={() => {
+                      let goalCode = 'loss';
+                      if (plan.goal === 'muscle-gain') goalCode = 'muscle';
+                      else if (plan.goal === 'weight-gain') goalCode = 'gain';
+                      else if (plan.goal === 'healthy-lifestyle') goalCode = 'maintenance';
+                      navigate(`/?goal=${goalCode}`);
+                    }}
                     className="mt-6 w-full rounded-xl bg-brand-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand-700"
                   >
                     View Plan

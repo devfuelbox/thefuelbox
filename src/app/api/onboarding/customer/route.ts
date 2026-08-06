@@ -1,5 +1,29 @@
 import { NextResponse } from 'next/server';
+import { Op } from 'sequelize';
 import { getDbModels } from '@/lib/db';
+
+// Generate a sequential, human-friendly order id (FB-01, FB-02, …)
+async function nextOrderId(Customer: any) {
+  const count = await Customer.count({
+    where: { id: { [Op.like]: 'FB-%' } },
+  });
+  return `FB-${String(count + 1).padStart(2, '0')}`;
+}
+
+async function createCustomerWithOrderId(Customer: any, fields: any) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const id = await nextOrderId(Customer);
+    try {
+      return await Customer.create({ ...fields, id });
+    } catch (err: any) {
+      const isDuplicate =
+        err?.name === 'SequelizeUniqueConstraintError' ||
+        /duplicate|unique/i.test(err?.message || '');
+      if (!isDuplicate || attempt === 4) throw err;
+    }
+  }
+  throw new Error('Failed to assign a unique order id');
+}
 
 export async function POST(req: Request) {
   try {
@@ -22,6 +46,8 @@ export async function POST(req: Request) {
       loc_lat,
       loc_lng,
       meal_plan,
+      meal_plan_price,
+      meal_plan_packages,
     } = data;
 
     if (!name || !phone) {
@@ -51,12 +77,14 @@ export async function POST(req: Request) {
       loc_lat: loc_lat != null ? Number(loc_lat) : null,
       loc_lng: loc_lng != null ? Number(loc_lng) : null,
       meal_plan: meal_plan || null,
+      meal_plan_price: meal_plan_price != null ? Number(meal_plan_price) : 0,
+      meal_plan_packages: meal_plan_packages || null,
     };
 
     if (customer) {
       await customer.update(fields);
     } else {
-      customer = await (Customer as any).create(fields);
+      customer = await createCustomerWithOrderId(Customer, fields);
     }
 
     return NextResponse.json({ success: true, customer });
