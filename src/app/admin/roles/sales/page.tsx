@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Phone, User, Search, X, Save, CheckCircle2, Activity, FileText, ThumbsDown, MessageCircle, IndianRupee
+  Phone, User, Search, X, Save, CheckCircle2, Activity, FileText, ThumbsDown, MessageCircle, IndianRupee, Bell, DollarSign
 } from 'lucide-react';
 import { foodLabel } from '@/lib/foodDisplay';
 import { normalizeMealPlan, planTotals } from '@/lib/mealPlan';
@@ -19,6 +19,39 @@ function getPackages(c: any): Array<{ name: string; days?: number; price: number
   return [];
 }
 
+const PAYMENT_METHODS = ['cash', 'card', 'upi', 'bank_transfer', 'online', 'other'];
+
+const GOAL_LABELS: Record<string, string> = {
+  loss: 'Weight Loss',
+  gain: 'Weight Gain',
+  muscle: 'Muscle Gain',
+  maintenance: 'Weight Maintenance',
+};
+
+function goalLabel(goal: any): string {
+  if (!goal) return '-';
+  const g = String(goal).trim().toLowerCase();
+  if (GOAL_LABELS[g]) return GOAL_LABELS[g];
+  return g.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+}
+
+function parseDateOnly(s: string): Date {
+  const [y, m, d] = String(s).split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function formatDate(s: string): string {
+  if (!s) return '-';
+  const [y, m, d] = String(s).split('-');
+  return `${d}-${m}-${y}`;
+}
+
+function todayAtMidnight(): Date {
+  const t = new Date();
+  t.setHours(0, 0, 0, 0);
+  return t;
+}
+
 
 
 export default function SalesDashboardPage() {
@@ -31,6 +64,8 @@ export default function SalesDashboardPage() {
   const [saving, setSaving] = useState(false);
   const [editingEnquiryId, setEditingEnquiryId] = useState<string | null>(null);
   const [menuItems, setMenuItems] = useState<any[]>([]);
+  const [recordPay, setRecordPay] = useState({ amount: 0, method: 'cash', date: '', note: '' });
+  const [recording, setRecording] = useState(false);
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('fuelbox_token') : '';
 
@@ -113,6 +148,7 @@ export default function SalesDashboardPage() {
     daily_calories: 0, daily_protein: 0,
     enquiry_date: '', service: 'meal_plan',
     total_amount: 0, paid_amount: 0, payment_method: 'cash', sales_notes: '',
+    next_payment_date: '', follow_up_note: '', follow_up_status: 'pending',
   });
 
   const planPrice = useMemo(() => {
@@ -147,6 +183,9 @@ export default function SalesDashboardPage() {
         paid_amount: Number(existing.paid_amount) || 0,
         payment_method: existing.payment_method || 'cash',
         sales_notes: existing.sales_notes || '',
+        next_payment_date: existing.next_payment_date || '',
+        follow_up_note: existing.follow_up_note || '',
+        follow_up_status: existing.follow_up_status || 'pending',
       });
     } else {
       setEditingEnquiryId(null);
@@ -173,8 +212,12 @@ export default function SalesDashboardPage() {
         paid_amount: 0,
         payment_method: 'cash',
         sales_notes: '',
+        next_payment_date: '',
+        follow_up_note: '',
+        follow_up_status: 'pending',
       });
     }
+    setRecordPay({ amount: 0, method: 'cash', date: '', note: '' });
     setSelectedCustomer(c);
     setEditModal(true);
   };
@@ -214,6 +257,79 @@ export default function SalesDashboardPage() {
     setSaving(false);
   };
 
+  const paymentReminders = useMemo(() => {
+    const today = todayAtMidnight();
+    return Object.values(customerEnquiries)
+      .filter((e: any) => {
+        const next = e?.next_payment_date;
+        const outstanding = Number(e?.outstanding_amount) || 0;
+        if (!next || outstanding <= 0) return false;
+        if (e.follow_up_status === 'completed') return false;
+        const reminderStart = parseDateOnly(next);
+        reminderStart.setDate(reminderStart.getDate() - 2);
+        return today >= reminderStart;
+      })
+      .map((e: any) => ({
+        ...e,
+        daysLeft: Math.max(0, Math.ceil((parseDateOnly(e.next_payment_date).getTime() - today.getTime()) / 86400000)),
+      }))
+      .sort((a: any, b: any) => String(a.next_payment_date).localeCompare(String(b.next_payment_date)));
+  }, [customerEnquiries]);
+
+  const openFollowUpFor = (e: any) => {
+    const c = customers.find(x => x.phone === e.phone);
+    openEditModal(c || {
+      name: e.customer_name, phone: e.phone, email: e.email, address: e.address,
+      age: e.age, gender: e.gender, height: e.height, weight: e.weight,
+      food: e.food_preference, activity: e.activity_level, goal: e.goal,
+      freq: e.meals_per_day, meal_plan: e.meal_plan, meal_plan_price: e.total_amount,
+    });
+  };
+
+  const markFollowUpCompleted = async (e: any) => {
+    try {
+      const r = await fetch('/api/roles/sales/enquiries', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ id: e.id, follow_up_status: 'completed' }),
+      });
+      if (r.ok) {
+        const updated = await r.json();
+        setCustomerEnquiries(prev => ({ ...prev, [e.phone]: updated }));
+      }
+    } catch {}
+  };
+
+  const handleRecordPayment = async () => {
+    if (!editingEnquiryId || !selectedCustomer || recordPay.amount <= 0) return;
+    setRecording(true);
+    try {
+      const r = await fetch('/api/roles/sales/enquiries', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          id: editingEnquiryId,
+          additional_payment: Number(recordPay.amount),
+          payment_method: recordPay.method,
+          payment_date: recordPay.date || new Date().toISOString().split('T')[0],
+          payment_note: recordPay.note,
+        }),
+      });
+      if (r.ok) {
+        const updated = await r.json();
+        setCustomerEnquiries(prev => ({ ...prev, [selectedCustomer.phone]: updated }));
+        setEditForm(f => ({
+          ...f,
+          paid_amount: Number(updated.paid_amount),
+          payment_method: recordPay.method,
+          follow_up_status: updated.follow_up_status || f.follow_up_status,
+        }));
+        setRecordPay({ amount: 0, method: 'cash', date: '', note: '' });
+      }
+    } catch {}
+    setRecording(false);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -224,6 +340,73 @@ export default function SalesDashboardPage() {
           <p className="text-gray-500 text-sm mt-1">Manage customers and submit details for verification.</p>
         </div>
       </div>
+
+      {/* Payment Follow-up Reminders */}
+      {paymentReminders.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Bell className="w-5 h-5 text-amber-500" />
+            <h2 className="text-sm font-extrabold text-gray-900 uppercase tracking-wider">
+              Payment Follow-up Reminders
+            </h2>
+            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-[10px] font-black">
+              {paymentReminders.length} due
+            </span>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {paymentReminders.map((r: any) => (
+              <div key={r.id} className="bg-amber-50/60 border border-amber-200 rounded-xl p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                      <Bell className="w-4 h-4 text-amber-600" />
+                    </span>
+                    <div>
+                      <p className="text-sm font-extrabold text-gray-900">Payment Follow-up Reminder</p>
+                      <p className="text-[11px] text-amber-700 font-bold">Customer: {r.customer_name}</p>
+                    </div>
+                  </div>
+                  <span className={`px-2 py-1 rounded-lg text-[10px] font-black whitespace-nowrap ${
+                    r.daysLeft === 0 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {r.daysLeft === 0 ? 'Due today' : `Due in ${r.daysLeft} day${r.daysLeft !== 1 ? 's' : ''}`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-3 mt-3">
+                  <div className="bg-white rounded-lg border border-amber-200 p-2.5 text-center">
+                    <p className="text-[9px] font-bold text-gray-400 uppercase">Pending Amount</p>
+                    <p className="text-sm font-black text-red-500 mt-0.5">₹{Number(r.outstanding_amount).toLocaleString()}</p>
+                  </div>
+                  <div className="bg-white rounded-lg border border-amber-200 p-2.5 text-center">
+                    <p className="text-[9px] font-bold text-gray-400 uppercase">Next Payment</p>
+                    <p className="text-sm font-black text-gray-900 mt-0.5">{formatDate(r.next_payment_date)}</p>
+                  </div>
+                  <div className="bg-white rounded-lg border border-amber-200 p-2.5 text-center">
+                    <p className="text-[9px] font-bold text-gray-400 uppercase">Status</p>
+                    <p className="text-sm font-black text-amber-600 mt-0.5 capitalize">{r.payment_status?.replace(/_/g, ' ') || 'pending'}</p>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-700 mt-3">
+                  <span className="font-bold">Reminder:</span> Follow up with the customer regarding the pending payment.
+                </p>
+                {r.follow_up_note ? (
+                  <p className="text-[11px] text-amber-800 mt-1.5 italic">"{r.follow_up_note}"</p>
+                ) : null}
+                <div className="flex flex-wrap items-center gap-2 mt-4">
+                  <button onClick={() => openFollowUpFor(r)}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-600 transition">
+                    <FileText className="w-3.5 h-3.5" /> Follow Up
+                  </button>
+                  <button onClick={() => markFollowUpCompleted(r)}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-white border border-amber-300 text-amber-700 rounded-lg text-xs font-bold hover:bg-amber-100 transition">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Mark Completed
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -306,7 +489,7 @@ export default function SalesDashboardPage() {
                     ); })()}
                   </td>
                   <td className="px-5 py-4">
-                    <span className="text-xs font-semibold capitalize text-gray-700">{c.goal?.replace(/_/g, ' ') || '-'}</span>
+                    <span className="text-xs font-semibold text-gray-700">{goalLabel(customerEnquiries[c.phone]?.goal || c.goal)}</span>
                   </td>
                   <td className="px-5 py-4 text-right">
                     {(() => {
@@ -522,7 +705,8 @@ export default function SalesDashboardPage() {
                       className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500">
                       <option value="loss">Weight Loss</option>
                       <option value="gain">Weight Gain</option>
-                      <option value="maintenance">Maintenance</option>
+                      <option value="muscle">Muscle Gain</option>
+                      <option value="maintenance">Weight Maintenance</option>
                     </select>
                   </div>
                 </div>
@@ -601,6 +785,101 @@ export default function SalesDashboardPage() {
                     </div>
                   </div>
                 ) : null; })()}
+              </div>
+
+              <div className="bg-amber-50/50 border border-amber-200 rounded-xl p-4">
+                <h3 className="text-sm font-extrabold text-amber-800 uppercase tracking-wider mb-1 flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-amber-600" /> Payment Follow-up
+                </h3>
+                <p className="text-[11px] text-amber-600/80 mb-3">Record the next payment date and follow-up note. A reminder will appear on the Sales Dashboard 2 days before the payment date until the payment is recorded or the follow-up is completed.</p>
+                {(() => { const total = Number(editForm.total_amount) || 0; const paid = Number(editForm.paid_amount) || 0; const pending = Math.max(0, total - paid); return (
+                  <div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                      <div className="bg-white border border-amber-200 rounded-xl p-3">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase">Total Amount</p>
+                        <p className="text-lg font-black text-gray-900 mt-0.5">₹{total.toLocaleString()}</p>
+                      </div>
+                      <div className="bg-white border border-amber-200 rounded-xl p-3">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase">Amount Paid</p>
+                        <p className="text-lg font-black text-emerald-600 mt-0.5">₹{paid.toLocaleString()}</p>
+                      </div>
+                      <div className="bg-white border border-amber-200 rounded-xl p-3">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase">Pending Amount</p>
+                        <p className={`text-lg font-black mt-0.5 ${pending > 0 ? 'text-red-500' : 'text-gray-600'}`}>₹{pending.toLocaleString()}</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Next Payment Date</label>
+                        <input type="date" value={editForm.next_payment_date}
+                          onChange={e => setEditForm({ ...editForm, next_payment_date: e.target.value })}
+                          className="w-full px-3 py-2.5 bg-white border border-amber-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Follow-up Status</label>
+                        <select value={editForm.follow_up_status}
+                          onChange={e => setEditForm({ ...editForm, follow_up_status: e.target.value })}
+                          className="w-full px-3 py-2.5 bg-white border border-amber-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500">
+                          <option value="pending">Pending</option>
+                          <option value="completed">Completed</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="mb-4">
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Follow-up Note</label>
+                      <textarea value={editForm.follow_up_note}
+                        onChange={e => setEditForm({ ...editForm, follow_up_note: e.target.value })}
+                        rows={2} className="w-full px-3 py-2.5 bg-white border border-amber-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500"
+                        placeholder="e.g., Customer said they will make the next payment on the selected date." />
+                    </div>
+                    {editingEnquiryId && pending > 0 && (
+                      <div className="bg-white border border-amber-200 rounded-xl p-4">
+                        <p className="text-xs font-extrabold text-gray-800 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                          <DollarSign className="w-4 h-4 text-emerald-600" /> Record Payment
+                        </p>
+                        <p className="text-[11px] text-gray-500 mb-3">Record a partial or full payment — the paid amount and pending balance update automatically.</p>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div>
+                            <label className="block text-xs font-bold text-gray-700 mb-1">Amount (₹)</label>
+                            <input type="number" min={0} max={pending} value={recordPay.amount}
+                              onChange={e => setRecordPay({ ...recordPay, amount: Number(e.target.value) })}
+                              className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-gray-700 mb-1">Method</label>
+                            <select value={recordPay.method}
+                              onChange={e => setRecordPay({ ...recordPay, method: e.target.value })}
+                              className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500">
+                              {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m.replace(/\b\w/g, l => l.toUpperCase())}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-gray-700 mb-1">Date</label>
+                            <input type="date" value={recordPay.date}
+                              onChange={e => setRecordPay({ ...recordPay, date: e.target.value })}
+                              className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-gray-700 mb-1">Note</label>
+                            <input type="text" value={recordPay.note}
+                              onChange={e => setRecordPay({ ...recordPay, note: e.target.value })}
+                              placeholder="e.g., Partial payment"
+                              className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500" />
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-3 mt-3">
+                          <span className="text-xs text-gray-600">
+                            After this payment: <span className="font-black text-gray-900">₹{Math.max(0, pending - recordPay.amount).toLocaleString()}</span> pending
+                          </span>
+                          <button type="button" onClick={handleRecordPayment} disabled={recording || recordPay.amount <= 0}
+                            className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition disabled:opacity-50">
+                            <DollarSign className="w-3.5 h-3.5" /> {recording ? 'Recording...' : 'Record Payment'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ); })()}
               </div>
 
               <div className="bg-blue-50/50 border border-blue-200 rounded-xl p-4">

@@ -5,7 +5,7 @@ import {
   Plus, Search, X, Save, Trash2, Eye, DollarSign, ChevronLeft, ChevronRight,
   Phone, Mail, MapPin, CalendarDays, User, Ruler, Weight, Flame, Dumbbell,
   Wheat, Apple, Utensils, Clock, CheckCircle2, AlertTriangle, Target,
-  Activity, Zap, Coffee, Sun, Moon, Star, FileText, CreditCard, Hash
+  Activity, Zap, Coffee, Sun, Moon, Star, FileText, CreditCard, Hash, ThumbsDown, MessageCircle
 } from 'lucide-react';
 import { calculateNutrition, calculateItemNutrition, distributeMeals } from '@/lib/nutrition/calculations';
 import { canonicalMealPlan, normalizeMealPlan, planTotals, selectedFoodItemsFromPlan } from '@/lib/mealPlan';
@@ -75,6 +75,9 @@ interface EnquiryRecord {
   payment_status: string;
   notes: string | null;
   payment_history: PaymentHistoryEntry[];
+  sales_notes: string | null;
+  sales_status: string | null;
+  order_status: string | null;
   created_at: string;
 }
 
@@ -84,6 +87,18 @@ const STAT_COLORS: Record<string, string> = {
   pending: 'bg-amber-50 text-amber-700 border-amber-200',
 };
 const STAT_ICONS: Record<string, any> = { paid: CheckCircle2, partially_paid: AlertTriangle, pending: Clock };
+const SALES_COLORS: Record<string, string> = {
+  new: 'bg-blue-50 text-blue-700 border-blue-200',
+  follow_up: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  non_follow_up: 'bg-gray-50 text-gray-500 border-gray-200',
+  not_interested: 'bg-red-50 text-red-700 border-red-200',
+};
+const SALES_LABELS: Record<string, string> = {
+  new: 'New',
+  follow_up: 'Submitted',
+  non_follow_up: 'Closed',
+  not_interested: 'Not Interested',
+};
 const MEAL_ICONS: Record<string, any> = { Morning: Coffee, Afternoon: Sun, Evening: Zap, Night: Moon };
 const ACTIVITY_OPTIONS = [
   { value: 'sedentary', label: 'Sedentary' },
@@ -99,11 +114,14 @@ const GOAL_OPTIONS = [
 const SERVICES = ['meal_plan', 'weekly_plan', 'monthly_plan', 'custom_plan', 'consultation', 'other'];
 const METHODS = ['cash', 'card', 'upi', 'bank_transfer', 'online', 'other'];
 
+const salesStatusOf = (r: EnquiryRecord): string => r.sales_status || 'new';
+
 export default function AdminEnquiriesPage() {
   const [records, setRecords] = useState<EnquiryRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [salesFilter, setSalesFilter] = useState('');
   const [page, setPage] = useState(1);
   const P = 10;
 
@@ -127,6 +145,7 @@ export default function AdminEnquiriesPage() {
     daily_calories: 0, daily_protein: 0,
     enquiry_date: '', service: 'meal_plan',
     total_amount: 0, paid_amount: 0, payment_method: 'cash', payment_date: '', notes: '',
+    sales_notes: '',
   };
   const [form, setForm] = useState(defaultForm);
 
@@ -160,11 +179,12 @@ export default function AdminEnquiriesPage() {
   const filtered = records.filter(r => {
     const ms = r.customer_name.toLowerCase().includes(search.toLowerCase()) || r.phone.includes(search);
     const ss = !statusFilter || r.payment_status === statusFilter;
-    return ms && ss;
+    const sf = !salesFilter || salesStatusOf(r) === salesFilter;
+    return ms && ss && sf;
   });
   const totPages = Math.ceil(filtered.length / P);
   const paginated = filtered.slice((page - 1) * P, page * P);
-  useEffect(() => { setPage(1); }, [search, statusFilter]);
+  useEffect(() => { setPage(1); }, [search, statusFilter, salesFilter]);
 
   // Food item selection
   const [foodSearch, setFoodSearch] = useState('');
@@ -224,6 +244,7 @@ export default function AdminEnquiriesPage() {
       enquiry_date: r.enquiry_date || '', service: r.service || 'meal_plan',
       total_amount: Number(r.total_amount), paid_amount: Number(r.paid_amount),
       payment_method: r.payment_method || 'cash', payment_date: r.payment_date || '', notes: r.notes || '',
+      sales_notes: r.sales_notes || '',
     });
     setSelected(r);
     setShowModal(true);
@@ -240,7 +261,7 @@ export default function AdminEnquiriesPage() {
       }
 
       const method = selected ? 'PATCH' : 'POST';
-      const body = selected ? { id: selected.id, ...payload } : payload;
+      const body = selected ? { id: selected.id, ...payload, sales_status: 'follow_up' } : { ...payload, sales_status: 'follow_up' };
       const res = await fetch('/api/admin/enquiries', {
         method,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -288,6 +309,18 @@ export default function AdminEnquiriesPage() {
       setAddPayForm({ amount: 0, method: 'cash', date: '', note: '' });
       setViewing(null);
     } catch { alert('Failed to add payment.'); }
+  };
+
+  const quickAction = async (r: EnquiryRecord, sales_status: string) => {
+    try {
+      const res = await fetch('/api/admin/enquiries', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ id: r.id, sales_status }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      await fetchRecords();
+    } catch { alert('Failed to update status.'); }
   };
 
   const totals = useMemo(() => ({
@@ -347,7 +380,7 @@ export default function AdminEnquiriesPage() {
 
       {/* Filter */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-3.5 text-gray-400" />
             <input type="text" placeholder="Search name or phone..." value={search}
@@ -356,10 +389,18 @@ export default function AdminEnquiriesPage() {
           </div>
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
             className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500">
-            <option value="">All Statuses</option>
+            <option value="">All Payments</option>
             <option value="pending">Pending</option>
             <option value="partially_paid">Partially Paid</option>
             <option value="paid">Paid</option>
+          </select>
+          <select value={salesFilter} onChange={e => setSalesFilter(e.target.value)}
+            className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500">
+            <option value="">All Sales Status</option>
+            <option value="new">New</option>
+            <option value="follow_up">Submitted</option>
+            <option value="non_follow_up">Closed</option>
+            <option value="not_interested">Not Interested</option>
           </select>
           <div className="text-xs text-gray-400 flex items-center justify-end font-medium">
             {filtered.length} record{filtered.length !== 1 ? 's' : ''}
@@ -381,14 +422,15 @@ export default function AdminEnquiriesPage() {
                 <th className="px-5 py-3">Paid</th>
                 <th className="px-5 py-3">Due</th>
                 <th className="px-5 py-3 text-center">Status</th>
+                <th className="px-5 py-3 text-center">Sales</th>
                 <th className="px-5 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {loading ? (
-                <tr><td colSpan={9} className="py-12 text-center text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={10} className="py-12 text-center text-gray-400">Loading...</td></tr>
               ) : paginated.length === 0 ? (
-                <tr><td colSpan={9} className="py-12 text-center text-gray-400">No enquiries found.</td></tr>
+                <tr><td colSpan={10} className="py-12 text-center text-gray-400">No enquiries found.</td></tr>
               ) : paginated.map(r => {
                 const SI = STAT_ICONS[r.payment_status] || Clock;
                 return (
@@ -424,8 +466,25 @@ export default function AdminEnquiriesPage() {
                         {r.payment_status.replace(/_/g, ' ')}
                       </span>
                     </td>
+                    <td className="px-5 py-4 text-center">
+                      <span className={`inline-flex items-center gap-1 px-2 py-1 border text-[10px] font-bold rounded-lg ${SALES_COLORS[salesStatusOf(r)]}`}>
+                        {SALES_LABELS[salesStatusOf(r)]}
+                      </span>
+                    </td>
                     <td className="px-5 py-4 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        {salesStatusOf(r) !== 'non_follow_up' && salesStatusOf(r) !== 'not_interested' && (
+                          <>
+                            <button onClick={() => quickAction(r, 'not_interested')}
+                              className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition" title="Mark Not Interested">
+                              <X className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => quickAction(r, 'non_follow_up')}
+                              className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg transition" title="Mark Closed">
+                              <ThumbsDown className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                         <button onClick={() => { setViewing(r); setAddPayModal(true); }}
                           disabled={r.payment_status === 'paid'}
                           className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition disabled:opacity-30" title="Add Payment">
@@ -850,6 +909,16 @@ export default function AdminEnquiriesPage() {
                   rows={2} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500" />
               </div>
 
+              <div className="bg-blue-50/50 border border-blue-200 rounded-xl p-4">
+                <h3 className="text-sm font-extrabold text-blue-800 uppercase tracking-wider mb-1 flex items-center gap-2">
+                  <MessageCircle className="w-4 h-4 text-blue-600" /> Instructions for Verifier
+                </h3>
+                <p className="text-[11px] text-blue-600/80 mb-3">These notes will be shown to the verifier in the Verifier Dashboard before they process this enquiry.</p>
+                <textarea value={form.sales_notes} onChange={e => setForm({ ...form, sales_notes: e.target.value })}
+                  rows={3} className="w-full px-3 py-2.5 bg-white border border-blue-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g., Customer wants an extra 100g chicken on the side. Call before confirming delivery timing." />
+              </div>
+
               {/* ── SUBMIT ── */}
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
                 <button type="button" onClick={() => setShowModal(false)}
@@ -875,6 +944,9 @@ export default function AdminEnquiriesPage() {
                 <p className="text-sm text-gray-400 mt-0.5">Complete record for {viewing.customer_name}</p>
               </div>
               <div className="flex items-center gap-2">
+                <span className={`inline-flex items-center gap-1 px-2 py-1 border text-[10px] font-bold rounded-lg ${SALES_COLORS[salesStatusOf(viewing)]}`}>
+                  {SALES_LABELS[salesStatusOf(viewing)]}
+                </span>
                 <button onClick={() => { setViewing(null); openEdit(viewing); }}
                   className="px-3 py-2 text-xs font-bold text-amber-600 bg-amber-50 rounded-lg hover:bg-amber-100 transition">Edit</button>
                 <button onClick={() => setViewing(null)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-lg transition">
@@ -1033,6 +1105,12 @@ export default function AdminEnquiriesPage() {
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
                   <p className="text-[10px] font-bold text-amber-600 uppercase mb-1">Notes</p>
                   <p className="text-sm text-amber-800">{viewing.notes}</p>
+                </div>
+              )}
+              {viewing.sales_notes && (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                  <p className="text-[10px] font-bold text-blue-600 uppercase mb-1">Instructions for Verifier</p>
+                  <p className="text-sm text-blue-800">{viewing.sales_notes}</p>
                 </div>
               )}
             </div>

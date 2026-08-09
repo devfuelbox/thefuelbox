@@ -40,10 +40,19 @@ export async function POST(req: Request) {
         if (paid > 0) return 'partially_paid';
         return 'pending';
       })(),
+      payment_history: Number(body.paid_amount) > 0 ? [{
+        amount: Number(body.paid_amount),
+        method: body.payment_method || 'cash',
+        date: body.payment_date || new Date().toISOString().split('T')[0],
+        note: 'Initial payment',
+      }] : [],
       sales_notes: body.sales_notes || '',
       sales_status: body.sales_status || 'follow_up',
       order_status: body.sales_status === 'non_follow_up' ? 'non_follow_up' : body.sales_status === 'not_interested' ? 'not_interested' : 'details_updated',
       assigned_sales_id: auth.user!.sub,
+      next_payment_date: body.next_payment_date || null,
+      follow_up_note: body.follow_up_note || '',
+      follow_up_status: body.follow_up_status || 'pending',
     });
 
     if (body.phone && (Number(body.total_amount) || 0) > 0) {
@@ -137,12 +146,32 @@ export async function PATCH(req: Request) {
     if (updates.paid_amount !== undefined) fields.paid_amount = Number(updates.paid_amount);
     if (updates.payment_method !== undefined) fields.payment_method = updates.payment_method;
     if (updates.payment_date !== undefined) fields.payment_date = updates.payment_date;
+    if (updates.next_payment_date !== undefined) fields.next_payment_date = updates.next_payment_date || null;
+    if (updates.follow_up_note !== undefined) fields.follow_up_note = updates.follow_up_note;
+    if (updates.follow_up_status !== undefined) fields.follow_up_status = updates.follow_up_status;
 
-    if (updates.total_amount !== undefined || updates.paid_amount !== undefined) {
+    if (updates.total_amount !== undefined || updates.paid_amount !== undefined || updates.additional_payment !== undefined) {
       const total = Number(updates.total_amount ?? existing.total_amount) || 0;
-      const paid = Number(updates.paid_amount ?? existing.paid_amount) || 0;
+      const paid = updates.paid_amount !== undefined
+        ? Number(updates.paid_amount) || 0
+        : updates.additional_payment !== undefined
+          ? (Number(existing.paid_amount) || 0) + (Number(updates.additional_payment) || 0)
+          : Number(existing.paid_amount) || 0;
+      fields.paid_amount = paid;
       fields.outstanding_amount = Math.max(0, total - paid);
       fields.payment_status = total <= 0 ? 'pending' : paid >= total ? 'paid' : paid > 0 ? 'partially_paid' : 'pending';
+    }
+
+    if (updates.additional_payment !== undefined && Number(updates.additional_payment) > 0) {
+      let history = existing.payment_history || [];
+      if (typeof history === 'string') { try { history = JSON.parse(history); } catch { history = []; } }
+      history = [...(Array.isArray(history) ? history : []), {
+        amount: Number(updates.additional_payment),
+        method: updates.payment_method || existing.payment_method || 'cash',
+        date: updates.payment_date || new Date().toISOString().split('T')[0],
+        note: updates.payment_note || 'Additional payment',
+      }];
+      fields.payment_history = history;
     }
 
     if (updates.sales_status === 'follow_up' && updates.customer_name !== undefined) {

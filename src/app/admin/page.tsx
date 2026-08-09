@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import {
   Users, ShoppingBag, DollarSign, TrendingUp, Utensils, MapPin,
   ArrowUpRight, ArrowDownRight, Activity, Clock, AlertCircle,
-  Flame, Dumbbell, Wheat, Apple, Zap, Star, X, Search, Check
+  Flame, Dumbbell, Wheat, Apple, Zap, Star, X, Search, Check,
+  ClipboardList, ChefHat
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -707,6 +708,32 @@ export default function AdminDashboardPage() {
               </div>
             </div>
             <ArrowUpRight className="w-4 h-4 text-gray-400 group-hover:text-purple-600" />
+          </Link>
+
+          <Link href="/admin/roles/sales" className="p-4 rounded-xl border border-blue-200 bg-blue-50/50 hover:bg-blue-50 hover:border-blue-300 transition flex items-center justify-between group">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-blue-100">
+                <ClipboardList className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 text-sm group-hover:text-blue-600 transition">Sales Dashboard</h3>
+                <p className="text-[11px] text-gray-500">Customers, follow-ups & verification</p>
+              </div>
+            </div>
+            <ArrowUpRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
+          </Link>
+
+          <Link href="/admin/roles/chef" className="p-4 rounded-xl border border-orange-200 bg-orange-50/50 hover:bg-orange-50 hover:border-orange-300 transition flex items-center justify-between group">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-orange-100">
+                <ChefHat className="w-5 h-5 text-orange-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 text-sm group-hover:text-orange-600 transition">Chef Dashboard</h3>
+                <p className="text-[11px] text-gray-500">Orders, cooking & delivery readiness</p>
+              </div>
+            </div>
+            <ArrowUpRight className="w-4 h-4 text-gray-400 group-hover:text-orange-600" />
           </Link>
         </div>
       </div>

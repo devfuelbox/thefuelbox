@@ -1,7 +1,4 @@
-﻿// RDA data from uploaded spreadsheet (Sheet2)
-// Age bands: 13-17, 18-40, 41-65
-
-export type AgeBand = "13-17" | "18-40" | "41-65";
+﻿export type AgeBand = "13-17" | "18-40" | "41-65";
 export type RdaGender = "male" | "female";
 
 export interface RDA {

@@ -88,6 +88,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     );
   }
 
+  if (isSuperOrAdmin) {
+    navItems.push(
+      { href: '/admin/roles/sales', label: 'Sales Dashboard', icon: ClipboardList },
+      { href: '/admin/roles/chef', label: 'Chef Dashboard', icon: ChefHat },
+    );
+  }
+
   if (userRole === 'sales') {
     navItems.push(
       { href: '/admin/roles/sales', label: 'Sales Dashboard', icon: ClipboardList },

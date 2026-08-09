@@ -43,18 +43,6 @@ let sampleAds: Advertisement[] = [
   },
 ];
 
-export function computeAdDisplayStatus(ad: Advertisement): AdDisplayStatus {
-  const now = new Date()
-  now.setHours(0, 0, 0, 0)
-  const start = new Date(ad.start_date)
-  const end = new Date(ad.end_date)
-
-  if (ad.status === 'inactive') return 'inactive'
-  if (start > now) return 'scheduled'
-  if (end < now) return 'expired'
-  return 'active'
-}
-
 export function computeAdStats(ads: Advertisement[]): AdStats {
   const total = ads.length
   const now = new Date()

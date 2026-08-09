@@ -158,6 +158,9 @@ export function defineModels(sequelize: Sequelize) {
     delivery_time_slot: { type: DataTypes.STRING, allowNull: true },
     special_instructions: { type: DataTypes.TEXT, allowNull: true },
     meal_statuses: { type: DataTypes.JSON, allowNull: true },
+    next_payment_date: { type: DataTypes.DATEONLY, allowNull: true },
+    follow_up_note: { type: DataTypes.TEXT, allowNull: true },
+    follow_up_status: { type: DataTypes.STRING, defaultValue: 'pending' },
   }, { underscored: true });
 
   const MealPlanSubscription = sequelize.define('meal_plan_subscriptions', {
@@ -195,14 +198,40 @@ export function defineModels(sequelize: Sequelize) {
   return { MenuItem, User, Profile, Order, Customer, Payment, CustomerEnquiry, MealPlanSubscription, MealDelivery, ChefDeliveryMapping };
 }
 
+// Safe, non-destructive schema sync: creates missing tables and only ADDs missing
+// columns. It never ALTERs existing columns or indexes (the previous `sync({ alter: true })`
+// regenerated every column with `ALTER TABLE ... CHANGE`, which breaks on unique columns
+// with MySQL error "Too many keys specified; max 64 keys allowed").
+async function syncSchema(sequelize: Sequelize, models: Record<string, any>) {
+  const qi = sequelize.getQueryInterface();
+  const existingTables = await qi.showAllTables();
+  for (const model of Object.values(models)) {
+    const table = model.getTableName();
+    const tableName = typeof table === 'string' ? table : table.tableName;
+    if (!existingTables.includes(tableName)) {
+      await model.sync();
+      continue;
+    }
+    const columns = await qi.describeTable(tableName);
+    const attributes = model.getAttributes();
+    for (const attrName of Object.keys(attributes)) {
+      const attr = attributes[attrName];
+      const colName = attr.field || attrName;
+      if (columns[colName]) continue;
+      await qi.addColumn(tableName, colName, attr);
+    }
+  }
+}
+
 export async function getDbModels() {
   const sequelize = getSequelize();
+  const models = defineModels(sequelize);
   try {
     await sequelize.authenticate();
-    await sequelize.sync({ alter: true });
-  } catch (err) {
+    await syncSchema(sequelize, models);
+  } catch (err: any) {
     // If database connection fails in dev environment, models handle graceful fallbacks
-    console.warn('MySQL DB not reachable yet, using fallback responses.');
+    console.warn('[DB] Schema sync skipped:', err?.message || err);
   }
-  return defineModels(sequelize);
+  return models;
 }

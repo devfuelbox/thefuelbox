@@ -88,6 +88,10 @@ export async function POST(req: Request) {
         date: body.payment_date || new Date().toISOString().split('T')[0],
         note: 'Initial payment',
       }] : [],
+      sales_notes: body.sales_notes || '',
+      sales_status: body.sales_status || 'follow_up',
+      order_status: body.sales_status === 'non_follow_up' ? 'non_follow_up'
+        : body.sales_status === 'not_interested' ? 'not_interested' : 'details_updated',
     });
 
     return NextResponse.json(rec, { status: 201 });
@@ -165,7 +169,22 @@ export async function PATCH(req: Request) {
       payment_status: payStatus(total, newPaid),
       notes: updates.notes ?? existing.notes,
       payment_history: history,
+      sales_notes: updates.sales_notes ?? existing.sales_notes,
+      sales_status: updates.sales_status ?? existing.sales_status,
     };
+
+    if (updates.sales_status) {
+      if (updates.sales_status === 'follow_up') {
+        fields.order_status = 'follow_up';
+      } else if (updates.sales_status === 'non_follow_up') {
+        fields.order_status = 'non_follow_up';
+      } else if (updates.sales_status === 'not_interested') {
+        fields.order_status = 'not_interested';
+      }
+    }
+    if (updates.sales_status === 'follow_up' && updates.customer_name !== undefined) {
+      fields.order_status = 'details_updated';
+    }
 
     await (CustomerEnquiry as any).update(fields, { where: { id } });
     const updated = await (CustomerEnquiry as any).findByPk(id);
