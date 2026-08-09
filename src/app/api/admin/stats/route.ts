@@ -4,6 +4,8 @@ import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fuelbox_dev_secret_change_in_production';
 
+const ALLOWED_ROLES = ['super_admin', 'admin', 'verifier', 'sales', 'chef', 'delivery_partner'];
+
 function verifyAdminToken(req: Request): { valid: boolean; role?: string } {
   const authHeader = req.headers.get('authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -20,7 +22,7 @@ function verifyAdminToken(req: Request): { valid: boolean; role?: string } {
 
 export async function GET(req: Request) {
   const auth = verifyAdminToken(req);
-  if (!auth.valid || !['admin', 'super_admin', 'verifier'].includes(auth.role || '')) {
+  if (!auth.valid || !ALLOWED_ROLES.includes(auth.role || '')) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   }
 

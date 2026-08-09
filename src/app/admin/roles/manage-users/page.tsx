@@ -18,7 +18,7 @@ interface UserRecord {
 
 const ROLES = [
   { value: 'super_admin', label: 'Super Admin', icon: Shield },
-  { value: 'admin', label: 'Admin', icon: UserCog },
+  // { value: 'admin', label: 'Admin', icon: UserCog },
   { value: 'sales', label: 'Sales', icon: UserCheck },
   { value: 'verifier', label: 'Verifier', icon: Shield },
   { value: 'chef', label: 'Chef', icon: ChefHat },
