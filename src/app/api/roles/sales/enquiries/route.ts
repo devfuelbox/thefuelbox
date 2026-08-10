@@ -195,3 +195,29 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ message: 'Failed' }, { status: 500 });
   }
 }
+
+export async function DELETE(req: Request) {
+  const auth = requireRole(req, ['super_admin', 'sales', 'admin']);
+  if (!auth.authorized) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+
+  try {
+    const url = new URL(req.url);
+    const id = url.searchParams.get('id');
+    if (!id) return NextResponse.json({ message: 'id required' }, { status: 400 });
+
+    const { CustomerEnquiry } = await getDbModels();
+    const existing = await (CustomerEnquiry as any).findByPk(id);
+    if (!existing) return NextResponse.json({ message: 'Not found' }, { status: 404 });
+
+    if (auth.user!.role === 'sales' && existing.assigned_sales_id !== auth.user!.sub) {
+      return NextResponse.json({ message: 'Not your enquiry' }, { status: 403 });
+    }
+
+    await (CustomerEnquiry as any).destroy({ where: { id } });
+
+    return NextResponse.json({ message: 'Enquiry deleted', id });
+  } catch (err) {
+    console.error('[Sales Enquiries] DELETE:', err);
+    return NextResponse.json({ message: 'Failed' }, { status: 500 });
+  }
+}

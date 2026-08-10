@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Phone, User, Search, X, Save, CheckCircle2, Activity, FileText, ThumbsDown, MessageCircle, IndianRupee, Bell, DollarSign
+  Phone, User, Search, X, Save, CheckCircle2, Activity, FileText, ThumbsDown, MessageCircle, IndianRupee, Bell, DollarSign, Trash2
 } from 'lucide-react';
 import { foodLabel } from '@/lib/foodDisplay';
 import { normalizeMealPlan, planTotals } from '@/lib/mealPlan';
@@ -66,6 +66,14 @@ export default function SalesDashboardPage() {
   const [menuItems, setMenuItems] = useState<any[]>([]);
   const [recordPay, setRecordPay] = useState({ amount: 0, method: 'cash', date: '', note: '' });
   const [recording, setRecording] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<any | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [toast, setToast] = useState<{ message: string; error?: boolean } | null>(null);
+
+  const showToast = (message: string, error = false) => {
+    setToast({ message, error });
+    window.setTimeout(() => setToast(null), 3000);
+  };
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('fuelbox_token') : '';
 
@@ -330,6 +338,32 @@ export default function SalesDashboardPage() {
     setRecording(false);
   };
 
+  const handleDeleteEnquiry = async () => {
+    if (!deleteConfirm?.id) return;
+    setDeleting(true);
+    try {
+      const r = await fetch(`/api/roles/sales/enquiries?id=${deleteConfirm.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (r.ok) {
+        setCustomerEnquiries(prev => {
+          const next = { ...prev };
+          delete next[deleteConfirm.phone];
+          return next;
+        });
+        setDeleteConfirm(null);
+        showToast('Customer enquiry deleted successfully.');
+      } else {
+        const j = await r.json().catch(() => ({}));
+        showToast(j.message || 'Failed to delete customer enquiry.', true);
+      }
+    } catch {
+      showToast('Failed to delete customer enquiry.', true);
+    }
+    setDeleting(false);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -552,14 +586,32 @@ export default function SalesDashboardPage() {
                         </button>
                       </div>
                     ) : customerEnquiries[c.phone].sales_status === 'follow_up' ? (
-                      <button onClick={() => openEditModal(c)}
-                        className="flex items-center gap-1 px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg text-xs font-bold hover:bg-amber-100 transition ml-auto">
-                        <FileText className="w-3 h-3" /> Edit
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => openEditModal(c)}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg text-xs font-bold hover:bg-amber-100 transition">
+                          <FileText className="w-3 h-3" /> Edit
+                        </button>
+                        <button onClick={() => setDeleteConfirm(customerEnquiries[c.phone])}
+                          className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition" title="Delete Enquiry">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     ) : customerEnquiries[c.phone].sales_status === 'non_follow_up' ? (
-                      <span className="text-xs text-gray-400 font-semibold">Closed</span>
+                      <div className="flex items-center justify-end gap-2">
+                        <span className="text-xs text-gray-400 font-semibold">Closed</span>
+                        <button onClick={() => setDeleteConfirm(customerEnquiries[c.phone])}
+                          className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition" title="Delete Enquiry">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     ) : (
-                      <span className="text-xs text-red-500 font-semibold">Not Interested</span>
+                      <div className="flex items-center justify-end gap-2">
+                        <span className="text-xs text-red-500 font-semibold">Not Interested</span>
+                        <button onClick={() => setDeleteConfirm(customerEnquiries[c.phone])}
+                          className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition" title="Delete Enquiry">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -903,6 +955,51 @@ export default function SalesDashboardPage() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => !deleting && setDeleteConfirm(null)}>
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Delete Customer Enquiry</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Are you sure you want to delete this customer enquiry? This action cannot be undone.
+                </p>
+                {deleteConfirm.customer_name && (
+                  <p className="text-xs font-semibold text-gray-400 mt-2">
+                    Customer: {deleteConfirm.customer_name} {deleteConfirm.phone ? `(${deleteConfirm.phone})` : ''}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button type="button" disabled={deleting} onClick={() => setDeleteConfirm(null)}
+                className="px-5 py-2.5 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition text-sm disabled:opacity-50">
+                Cancel
+              </button>
+              <button type="button" disabled={deleting} onClick={handleDeleteEnquiry}
+                className="px-5 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition text-sm flex items-center gap-2 disabled:opacity-50">
+                <Trash2 className="w-4 h-4" />
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success / Error Toast */}
+      {toast && (
+        <div className={`fixed inset-x-0 top-4 mx-auto max-w-sm z-[70] rounded-md px-4 py-3 text-center text-sm text-white shadow-lg ${
+          toast.error ? 'bg-red-600' : 'bg-emerald-600'
+        }`}>
+          {toast.message}
         </div>
       )}
     </div>

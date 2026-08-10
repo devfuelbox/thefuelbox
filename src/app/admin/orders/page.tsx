@@ -13,6 +13,7 @@ import {
   Filter,
   ChevronLeft,
   ChevronRight,
+  Trash2,
 } from "lucide-react";
 import { foodLabel } from "@/lib/foodDisplay";
 
@@ -51,6 +52,26 @@ export default function AdminOrdersPage() {
   // Selected customer for details modal
   const [selectedCustomer, setSelectedCustomer] =
     useState<Customer | null>(null);
+
+  // Delete state
+  const [deleteTarget, setDeleteTarget] =
+    useState<Customer | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [toast, setToast] = useState<{ message: string; error?: boolean } | null>(null);
+
+  const isSuperAdmin =
+    typeof window !== "undefined" &&
+    localStorage.getItem("fuelbox_user_role") === "super_admin";
+
+  const token =
+    typeof window !== "undefined"
+      ? localStorage.getItem("fuelbox_token") || ""
+      : "";
+
+  const showToast = (message: string, error = false) => {
+    setToast({ message, error });
+    window.setTimeout(() => setToast(null), 3000);
+  };
 
   // Filters
   const [customerName, setCustomerName] = useState("");
@@ -212,6 +233,37 @@ export default function AdminOrdersPage() {
 
   const handleCloseModal = () => {
     setSelectedCustomer(null);
+  };
+
+  // --------------------------------------------------
+  // DELETE CUSTOMER (Super Admin only)
+  // --------------------------------------------------
+
+  const handleDeleteCustomer = async () => {
+    if (!deleteTarget?.id) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(
+        `/api/customers?id=${deleteTarget.id}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      if (res.ok) {
+        setCustomers((prev) =>
+          prev.filter((c) => c.id !== deleteTarget.id)
+        );
+        setDeleteTarget(null);
+        showToast("Customer and related enquiry data deleted successfully.");
+      } else {
+        const j = await res.json().catch(() => ({}));
+        showToast(j.message || "Failed to delete customer.", true);
+      }
+    } catch {
+      showToast("Failed to delete customer.", true);
+    }
+    setDeleting(false);
   };
 
   // --------------------------------------------------
@@ -505,18 +557,35 @@ export default function AdminOrdersPage() {
                       {/* ACTION */}
                       <td className="px-6 py-5 text-right">
 
-                        <button
-                          onClick={() =>
-                            handleViewDetails(
-                              customer
-                            )
-                          }
-                          className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-semibold hover:bg-brand-700 transition"
-                        >
-                          <Eye className="w-4 h-4" />
+                        <div className="flex items-center justify-end gap-2">
 
-                          View Details
-                        </button>
+                          <button
+                            onClick={() =>
+                              handleViewDetails(
+                                customer
+                              )
+                            }
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-semibold hover:bg-brand-700 transition"
+                          >
+                            <Eye className="w-4 h-4" />
+
+                            View Details
+                          </button>
+
+                          {isSuperAdmin && (
+                            <button
+                              onClick={() =>
+                                setDeleteTarget(customer)
+                              }
+                              title="Delete Customer"
+                              className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              Delete
+                            </button>
+                          )}
+
+                        </div>
 
                       </td>
 
@@ -955,6 +1024,102 @@ export default function AdminOrdersPage() {
 
         </div>
 
+      )}
+
+      {/* ================================================= */}
+      {/* DELETE CUSTOMER CONFIRMATION MODAL */}
+      {/* ================================================= */}
+
+      {deleteTarget && (
+
+        <div
+          className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() =>
+            !deleting && setDeleteTarget(null)
+          }
+        >
+
+          <div
+            className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6"
+            onClick={(e) =>
+              e.stopPropagation()
+            }
+          >
+
+            <div className="flex items-start gap-3">
+
+              <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5 text-red-600" />
+              </div>
+
+              <div>
+
+                <h2 className="text-lg font-bold text-gray-900">
+                  Delete Customer
+                </h2>
+
+                <p className="text-sm text-gray-500 mt-1">
+                  Are you sure you want to delete this customer? This will
+                  permanently delete the customer and all related enquiry
+                  data. This action cannot be undone.
+                </p>
+
+                <p className="text-xs font-semibold text-gray-400 mt-2">
+                  Customer: {deleteTarget.name}{" "}
+                  {deleteTarget.phone
+                    ? `(${deleteTarget.phone})`
+                    : ""}
+                </p>
+
+              </div>
+
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() =>
+                  setDeleteTarget(null)
+                }
+                className="px-5 py-2.5 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition text-sm disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={handleDeleteCustomer}
+                className="px-5 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition text-sm flex items-center gap-2 disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" />
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      )}
+
+      {/* ================================================= */}
+      {/* SUCCESS / ERROR TOAST */}
+      {/* ================================================= */}
+
+      {toast && (
+        <div
+          className={`fixed inset-x-0 top-4 mx-auto max-w-sm z-[70] rounded-md px-4 py-3 text-center text-sm text-white shadow-lg ${
+            toast.error
+              ? "bg-red-600"
+              : "bg-emerald-600"
+          }`}
+        >
+          {toast.message}
+        </div>
       )}
 
     </div>
