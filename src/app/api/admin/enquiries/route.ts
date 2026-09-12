@@ -10,7 +10,7 @@ function verifyAdmin(req: Request): boolean {
   if (!auth?.startsWith('Bearer ')) return false;
   try {
     const d = jwt.verify(auth.slice(7), JWT_SECRET) as { role?: string };
-    return ['admin', 'super_admin', 'verifier'].includes(d.role || '');
+    return ['admin', 'super_admin', 'sales'].includes(d.role || '');
   } catch { return false; }
 }
 

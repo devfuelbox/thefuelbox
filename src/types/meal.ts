@@ -1,6 +1,6 @@
 export type MealCategory = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'combo' | 'main' | 'side' | 'combo1' | 'combo2' | 'combo3' | 'combo4';
 export type MealType = 'pre_workout' | 'post_workout' | 'rest_day'
-export type DietCategory = 'veg' | 'non_veg'
+export type DietCategory = 'veg' | 'egg' | 'non_veg'
 
 export interface MenuItem {
   id: string

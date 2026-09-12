@@ -47,6 +47,9 @@ interface IngredientData {
   t: "veg" | "egg" | "nonveg";
   k: number;
   p: number;
+  c?: number;
+  f?: number;
+  fi?: number;
   price: number;
   unit?: number;
   uname?: string;
@@ -58,17 +61,21 @@ const BASE_ING: Record<string, IngredientData> = {
     t: "nonveg",
     k: 165,
     p: 31,
+    c: 0, f: 3.6, fi: 0,
     price: 28,
   },
   egg: { n: "Egg", t: "egg", k: 155, p: 13, price: 10, unit: 50, uname: "egg" },
-  paneer: { n: "Paneer", t: "veg", k: 275, p: 19, price: 25 },
+  paneer: { n: "Paneer", t: "veg", k: 275, p: 19,
+    c: 2.4, f: 15, fi: 0, price: 25 },
   soya: { n: "Soya", t: "veg", k: 345, p: 52, price: 20 },
-  chickpeas: { n: "Chickpeas (cooked)", t: "veg", k: 164, p: 8.9, price: 18 },
+  chickpeas: { n: "Chickpeas (cooked)", t: "veg", k: 164, p: 8.9,
+    c: 27.4, f: 2.6, fi: 7.6, price: 18 },
   sweetpotato: {
     n: "Sweet Potato (boiled)",
     t: "veg",
     k: 76,
     p: 1.4,
+    c: 17.7, f: 0.1, fi: 2.5,
     price: 15,
   },
   banana: {
@@ -76,58 +83,82 @@ const BASE_ING: Record<string, IngredientData> = {
     t: "veg",
     k: 89,
     p: 1.1,
+    c: 22.8, f: 0.3, fi: 2.6,
     price: 10,
     unit: 120,
     uname: "pc",
   },
-  rice: { n: "White Rice (cooked)", t: "veg", k: 130, p: 2.7, price: 12 },
+  rice: { n: "White Rice (cooked)", t: "veg", k: 130, p: 2.7,
+    c: 28, f: 0.3, fi: 0.4, price: 12 },
   chapati: {
     n: "Chapati (whole wheat)",
     t: "veg",
     k: 299,
     p: 7.9,
+    c: 46, f: 9.2, fi: 9.7,
     price: 8,
     unit: 50,
     uname: "pc",
   },
-  carrot: { n: "Carrot (raw)", t: "veg", k: 41, p: 0.9, price: 12 },
-  cucumber: { n: "Cucumber (raw)", t: "veg", k: 16, p: 0.7, price: 10 },
-  greenbeans: { n: "Green Beans (cooked)", t: "veg", k: 35, p: 1.9, price: 15 },
-  cabbage: { n: "Cabbage (raw)", t: "veg", k: 25, p: 1.3, price: 10 },
-  cabbageP: { n: "Purple Cabbage (raw)", t: "veg", k: 31, p: 1.4, price: 14 },
-  lettuce: { n: "Lettuce (raw)", t: "veg", k: 15, p: 1.4, price: 12 },
+  carrot: { n: "Carrot (raw)", t: "veg", k: 41, p: 0.9,
+    c: 9.6, f: 0.2, fi: 2.8, price: 12 },
+  cucumber: { n: "Cucumber (raw)", t: "veg", k: 16, p: 0.7,
+    c: 3.6, f: 0.1, fi: 0.5, price: 10 },
+  greenbeans: { n: "Green Beans (cooked)", t: "veg", k: 35, p: 1.9,
+    c: 7.9, f: 0.3, fi: 3.2, price: 15 },
+  cabbage: { n: "Cabbage (raw)", t: "veg", k: 25, p: 1.3,
+    c: 5.8, f: 0.1, fi: 2.5, price: 10 },
+  cabbageP: { n: "Purple Cabbage (raw)", t: "veg", k: 31, p: 1.4,
+    c: 7.4, f: 0.2, fi: 2.1, price: 14 },
+  lettuce: { n: "Lettuce (raw)", t: "veg", k: 15, p: 1.4,
+    c: 2.9, f: 0.2, fi: 1.3, price: 12 },
   paneerDressing: {
     n: "Paneer Cheese Dressing",
     t: "veg",
     k: 240,
     p: 12,
+    c: 5, f: 19.5, fi: 0.2,
     price: 20,
   },
-  broccoli: { n: "Broccoli (cooked)", t: "veg", k: 35, p: 2.4, price: 22 },
+  broccoli: { n: "Broccoli (cooked)", t: "veg", k: 35, p: 2.4,
+    c: 7.2, f: 0.4, fi: 3.3, price: 22 },
   channaW: { n: "White Channa (cooked)", t: "veg", k: 164, p: 8.9, price: 18 },
   channaOnions: {
     n: "Channa with Onions (cooked)",
     t: "veg",
     k: 140,
     p: 7.5,
+    c: 22, f: 2.2, fi: 6.4,
     price: 20,
   },
-  dragonfruit: { n: "Dragon Fruit", t: "veg", k: 60, p: 1.2, price: 35 },
-  orange: { n: "Orange", t: "veg", k: 47, p: 0.9, price: 15 },
-  mango: { n: "Mango", t: "veg", k: 60, p: 0.8, price: 25 },
-  apple: { n: "Apple (with skin)", t: "veg", k: 52, p: 0.3, price: 20 },
-  pomegranate: { n: "Pomegranate", t: "veg", k: 75, p: 1.1, price: 30 },
-  guava: { n: "Guava", t: "veg", k: 68, p: 2.6, price: 18 },
-  papaya: { n: "Papaya", t: "veg", k: 43, p: 0.5, price: 16 },
-  watermelon: { n: "Watermelon", t: "veg", k: 30, p: 0.6, price: 15 },
-  grapes: { n: "Grapes", t: "veg", k: 69, p: 0.7, price: 22 },
-  strawberry: { n: "Strawberry", t: "veg", k: 32, p: 0.7, price: 40 },
-  cherry: { n: "Cherry", t: "veg", k: 50, p: 1.0, price: 45 },
+  dragonfruit: { n: "Dragon Fruit", t: "veg", k: 60, p: 1.2,
+    c: 13, f: 0, fi: 2.9, price: 35 },
+  orange: { n: "Orange", t: "veg", k: 47, p: 0.9,
+    c: 11.8, f: 0.1, fi: 2.4, price: 15 },
+  mango: { n: "Mango", t: "veg", k: 60, p: 0.8,
+    c: 15, f: 0.4, fi: 1.6, price: 25 },
+  apple: { n: "Apple (with skin)", t: "veg", k: 52, p: 0.3,
+    c: 13.8, f: 0.2, fi: 2.4, price: 20 },
+  pomegranate: { n: "Pomegranate", t: "veg", k: 75, p: 1.1,
+    c: 18.7, f: 0.7, fi: 4, price: 30 },
+  guava: { n: "Guava", t: "veg", k: 68, p: 2.6,
+    c: 14.3, f: 1, fi: 5.4, price: 18 },
+  papaya: { n: "Papaya", t: "veg", k: 43, p: 0.5,
+    c: 10.8, f: 0.3, fi: 1.7, price: 16 },
+  watermelon: { n: "Watermelon", t: "veg", k: 30, p: 0.6,
+    c: 7.6, f: 0.2, fi: 0.4, price: 15 },
+  grapes: { n: "Grapes", t: "veg", k: 69, p: 0.7,
+    c: 18.1, f: 0.2, fi: 0.9, price: 22 },
+  strawberry: { n: "Strawberry", t: "veg", k: 32, p: 0.7,
+    c: 7.7, f: 0.3, fi: 2, price: 40 },
+  cherry: { n: "Cherry", t: "veg", k: 50, p: 1.0,
+    c: 12.2, f: 0.3, fi: 1.6, price: 45 },
   bananaReg: {
     n: "Regular Banana",
     t: "veg",
     k: 89,
     p: 1.1,
+    c: 22.8, f: 0.3, fi: 2.6,
     price: 10,
     unit: 120,
     uname: "pc",
@@ -137,6 +168,7 @@ const BASE_ING: Record<string, IngredientData> = {
     t: "veg",
     k: 95,
     p: 1.2,
+    c: 24, f: 0.3, fi: 2.6,
     price: 15,
     unit: 120,
     uname: "pc",
@@ -146,6 +178,7 @@ const BASE_ING: Record<string, IngredientData> = {
     t: "veg",
     k: 92,
     p: 1.3,
+    c: 21, f: 0.3, fi: 3,
     price: 18,
     unit: 120,
     uname: "pc",
@@ -155,6 +188,7 @@ const BASE_ING: Record<string, IngredientData> = {
     t: "veg",
     k: 90,
     p: 1.1,
+    c: 23.2, f: 0.3, fi: 2.6,
     price: 12,
     unit: 120,
     uname: "pc",
@@ -164,6 +198,7 @@ const BASE_ING: Record<string, IngredientData> = {
     t: "veg",
     k: 104,
     p: 1.2,
+    c: 26, f: 0.3, fi: 2.6,
     price: 12,
     unit: 120,
     uname: "pc",
@@ -173,11 +208,14 @@ const BASE_ING: Record<string, IngredientData> = {
     t: "veg",
     k: 130,
     p: 6.0,
+    c: 21, f: 2, fi: 5.5,
     price: 16,
   },
-  onion: { n: "Onion (raw)", t: "veg", k: 40, p: 1.1, price: 8 },
+  onion: { n: "Onion (raw)", t: "veg", k: 40, p: 1.1,
+    c: 9.3, f: 0.1, fi: 1.7, price: 8 },
   peanut: { n: "Peanut", t: "veg", k: 567, p: 25.8, price: 25 },
-  beetroot: { n: "Beetroot", t: "veg", k: 43, p: 1.6, price: 14 },
+  beetroot: { n: "Beetroot", t: "veg", k: 43, p: 1.6,
+    c: 9.6, f: 0.2, fi: 2.8, price: 14 },
 
   // Combos
   weightLossCombo1: {
@@ -249,6 +287,12 @@ const kOf = (ing: Record<string, IngredientData>, id: string, g: number) =>
   (ing[id]?.k * g) / 100 || 0;
 const pOf = (ing: Record<string, IngredientData>, id: string, g: number) =>
   (ing[id]?.p * g) / 100 || 0;
+const cOf = (ing: Record<string, IngredientData>, id: string, g: number) =>
+  ((ing[id]?.c ?? 0) * g) / 100 || 0;
+const fOf = (ing: Record<string, IngredientData>, id: string, g: number) =>
+  ((ing[id]?.f ?? 0) * g) / 100 || 0;
+const fiOf = (ing: Record<string, IngredientData>, id: string, g: number) =>
+  ((ing[id]?.fi ?? 0) * g) / 100 || 0;
 const costOf = (ing: Record<string, IngredientData>, id: string, g: number) =>
   (ing[id]?.price * g) / 100 || 0;
 
@@ -995,6 +1039,56 @@ function Result({
     0,
   );
 
+  // ─── FIXED TARGET vs SELECTED NUTRITION ───
+  const [foodSearch, setFoodSearch] = useState("");
+  const fixedTarget = useMemo(() => ({
+    calories: metrics.goalCalories,
+    protein: metrics.proteinG,
+    carbs: metrics.carbsG,
+    fat: metrics.fatG,
+    fiber: 25,
+  }), [metrics.goalCalories, metrics.proteinG, metrics.carbsG, metrics.fatG]);
+  const selectedNutrition = useMemo(() => {
+    const items = cov.delMeals.flatMap((m: any) => m.items);
+    const calories = Math.round(items.reduce((s: number, it: any) => s + kOf(ing, it.id, it.g), 0));
+    const protein = Math.round(items.reduce((s: number, it: any) => s + pOf(ing, it.id, it.g), 0));
+    const carbs = Math.round(items.reduce((s: number, it: any) => s + cOf(ing, it.id, it.g), 0));
+    const fat = Math.round(items.reduce((s: number, it: any) => s + fOf(ing, it.id, it.g), 0));
+    const fiber = Math.round(items.reduce((s: number, it: any) => s + fiOf(ing, it.id, it.g), 0) * 10) / 10;
+    return { calories, protein, carbs, fat, fiber };
+  }, [cov.delMeals, ing]);
+  const remaining = useMemo(() => ({
+    calories: fixedTarget.calories - selectedNutrition.calories,
+    protein: fixedTarget.protein - selectedNutrition.protein,
+    carbs: fixedTarget.carbs - selectedNutrition.carbs,
+    fat: fixedTarget.fat - selectedNutrition.fat,
+    fiber: Math.round((fixedTarget.fiber - selectedNutrition.fiber) * 10) / 10,
+  }), [fixedTarget, selectedNutrition]);
+
+  // ─── PER-MEAL CALORIE LIMIT (fixed, reusable) ───
+  const [toast, setToast] = useState<string | null>(null);
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+  const mealLimits = useMemo(() => {
+    const map = new Map<string, number>();
+    plan.meals.forEach((m: any) => {
+      const kcal = Math.round(m.items.reduce((s: number, it: any) => s + kOf(ing, it.id, it.g), 0));
+      const fallback = Math.round(fixedTarget.calories / (cov.delNames.length || 1));
+      map.set(m.name, kcal > 0 ? kcal : fallback);
+    });
+    return map;
+  }, [plan, ing, fixedTarget.calories, cov.delNames]);
+  const getMealLimit = useCallback((mealName: string) => mealLimits.get(mealName) ?? Math.round(fixedTarget.calories / (cov.delNames.length || 1)), [mealLimits, fixedTarget.calories, cov.delNames]);
+  const canAddToMeal = useCallback((mealName: string, itemId: string) => {
+    const limit = getMealLimit(mealName);
+    const meal = planToUse.meals.find((m: any) => m.name === mealName);
+    const current = meal ? Math.round(meal.items.reduce((s: number, it: any) => s + kOf(ing, it.id, it.g), 0)) : 0;
+    const foodKcal = Math.round(kOf(ing, itemId, (ing[itemId] as any)?.unit || 50));
+    return current + foodKcal <= limit;
+  }, [planToUse.meals, ing, getMealLimit]);
+
   const bmiLine = () => {
     const b = metrics.bmi.toFixed(1);
     if (a.goal === "loss" && metrics.bmi >= 25)
@@ -1057,34 +1151,34 @@ function Result({
     };
   };
 
-  const handleUpdateQty = (
-    mealName: string,
-    itemId: string,
-    direction: number,
-  ) => {
-    const d = ing[itemId];
-    const step = d.unit || 25;
+  const handleRemoveItem = (mealName: string, itemId: string) => {
     const updatedMeals = planToUse.meals.map((m: any) => {
       if (m.name !== mealName) return m;
-      const updatedItems = m.items
-        .map((it: any) => {
-          if (it.id !== itemId) return it;
-          const newG = Math.max(0, it.g + direction * step);
-          return { ...it, g: newG };
-        })
-        .filter((it: any) => it.g > 0);
-      return { ...m, items: updatedItems };
+      return { ...m, items: m.items.filter((it: any) => it.id !== itemId) };
     });
     setCustomPlan(recalculatePlan(updatedMeals));
   };
 
   const handleAddItem = (mealName: string, itemId: string) => {
-    const d = ing[itemId];
+    const d = ing[itemId] as any;
+    if (!d) return;
     const defaultQty = d.unit || 50;
+    const targetMeal = mealName || cov.delNames[0] || planToUse.meals[0]?.name;
+    if (!targetMeal) return;
+    const targetMealObj = planToUse.meals.find((m: any) => m.name === targetMeal);
+    if (targetMealObj?.items.some((it: any) => it.id === itemId)) {
+      showToast("Food already added");
+      return;
+    }
+    const limit = getMealLimit(targetMeal);
+    const current = targetMealObj ? Math.round(targetMealObj.items.reduce((s: number, it: any) => s + kOf(ing, it.id, it.g), 0)) : 0;
+    const foodKcal = Math.round(kOf(ing, itemId, defaultQty));
+    if (current + foodKcal > limit) {
+      showToast(`Calorie limit reached — You can only add food up to ${limit} kcal for this meal.`);
+      return;
+    }
     const updatedMeals = planToUse.meals.map((m: any) => {
-      if (m.name !== mealName) return m;
-      const alreadyExists = m.items.some((it: any) => it.id === itemId);
-      if (alreadyExists) return m;
+      if (m.name !== targetMeal) return m;
       return {
         ...m,
         items: [...m.items, { id: itemId, g: defaultQty }],
@@ -1094,6 +1188,18 @@ function Result({
   };
 
   const handleOrderOnWhatsApp = async () => {
+    // Validation BEFORE DB save/API request: block empty meal plan
+    const totalDeliveredItems = cov.delMeals.reduce((s: number, m: any) => s + m.items.length, 0);
+    const totalDeliveredCalories = cov.delMeals.reduce(
+      (s: number, m: any) => s + m.items.reduce((x: number, it: any) => x + kOf(ing, it.id, it.g), 0),
+      0,
+    );
+    const totalFoodItems = planToUse.meals.reduce((s: number, m: any) => s + m.items.length, 0);
+    if (totalDeliveredItems === 0 || totalDeliveredCalories === 0 || totalFoodItems === 0) {
+      showToast("Please select at least one food item before placing the order.");
+      return;
+    }
+
     setIsOrdering(true);
     setOrderError("");
 
@@ -1389,6 +1495,82 @@ function Result({
           </div>
         </div>
         <div style={{ height: 1, background: C.line, margin: "16px 0" }} />
+                {/* FIXED TARGET vs SELECTED - clear separation */}
+        <div style={{ background: "#F9FAFB", border: `1px solid ${C.line}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.14em", marginBottom: 10 }}>Daily Nutrition Target — Fixed</div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
+              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Calories</div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.bone, fontWeight: 800 }}>{fixedTarget.calories.toLocaleString()} <span style={{ fontSize: 11, color: C.muted }}>kcal</span></div>
+            </div>
+            <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
+              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Protein</div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.bone, fontWeight: 800 }}>{fixedTarget.protein}g</div>
+            </div>
+            <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
+              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Carbs / Fat</div>
+              <div style={{ fontSize: 13, color: C.bone, fontWeight: 700 }}>{fixedTarget.carbs}g / {fixedTarget.fat}g</div>
+              <div style={{ fontSize: 10, color: C.muted }}>{fixedTarget.fiber}g Fiber</div>
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: C.muted, marginTop: 8, lineHeight: 1.4 }}>These values stay fixed. Adding or removing foods does not change your target.</div>
+        </div>
+
+        <div style={{ background: C.card, border: `1px solid ${C.yolk}20`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.yolk, textTransform: "uppercase", letterSpacing: "0.14em", marginBottom: 10 }}>Your Selected Foods — {selectedNutrition.calories} kcal · {selectedNutrition.protein}g Protein</div>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-3">
+            <div style={{ background: "#F9FAFB", borderRadius: 10, padding: "8px 10px", textAlign: "center", border: `1px solid ${C.line}` }}>
+              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Calories</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: C.bone }}>{selectedNutrition.calories}</div>
+              <div style={{ fontSize: 10, color: C.muted }}>of {fixedTarget.calories}</div>
+            </div>
+            <div style={{ background: "#F9FAFB", borderRadius: 10, padding: "8px 10px", textAlign: "center", border: `1px solid ${C.line}` }}>
+              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Protein</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: C.bone }}>{selectedNutrition.protein}g</div>
+              <div style={{ fontSize: 10, color: C.muted }}>of {fixedTarget.protein}g</div>
+            </div>
+            <div style={{ background: "#F9FAFB", borderRadius: 10, padding: "8px 10px", textAlign: "center", border: `1px solid ${C.line}` }}>
+              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Carbs</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: C.bone }}>{selectedNutrition.carbs}g</div>
+            </div>
+            <div style={{ background: "#F9FAFB", borderRadius: 10, padding: "8px 10px", textAlign: "center", border: `1px solid ${C.line}` }}>
+              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Fat</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: C.bone }}>{selectedNutrition.fat}g</div>
+            </div>
+            <div style={{ background: "#F9FAFB", borderRadius: 10, padding: "8px 10px", textAlign: "center", border: `1px solid ${C.line}` }}>
+              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Fiber</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: C.bone }}>{selectedNutrition.fiber}g</div>
+            </div>
+          </div>
+          {/* Progress bars */}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, fontWeight: 700, color: C.bone, marginBottom: 4 }}>
+              <span>Calories</span><span>{selectedNutrition.calories} / {fixedTarget.calories} kcal</span>
+            </div>
+            <div style={{ height: 8, background: C.line, borderRadius: 6, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${Math.min(100, Math.round((selectedNutrition.calories / fixedTarget.calories) * 100))}%`, background: selectedNutrition.calories > fixedTarget.calories ? C.nonveg : C.yolk, borderRadius: 6, transition: "width 300ms" }} />
+            </div>
+          </div>
+          <div style={{ marginBottom: 4 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, fontWeight: 700, color: C.bone, marginBottom: 4 }}>
+              <span>Protein</span><span>{selectedNutrition.protein} / {fixedTarget.protein}g</span>
+            </div>
+            <div style={{ height: 8, background: C.line, borderRadius: 6, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${Math.min(100, Math.round((selectedNutrition.protein / fixedTarget.protein) * 100))}%`, background: selectedNutrition.protein > fixedTarget.protein ? C.nonveg : C.yolk, borderRadius: 6, transition: "width 300ms" }} />
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12, padding: 10, background: "rgba(22,163,74,0.06)", borderRadius: 10, border: `1px dashed ${C.yolk}30` }}>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Selected Plan</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: C.bone }}>{selectedNutrition.calories} kcal · {selectedNutrition.protein}g P</div>
+            </div>
+            <div style={{ textAlign: "center", borderLeft: `1px solid ${C.line}` }}>
+              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Remaining</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: remaining.calories >= 0 && remaining.protein >= 0 ? C.yolk : C.nonveg }}>{Math.abs(remaining.calories)} kcal · {Math.abs(remaining.protein)}g {remaining.calories >= 0 ? "left" : "over"}</div>
+            </div>
+          </div>
+        </div>
+
         {planToUse.meals.map((m: any) => {
           const mine = cov.delNames.includes(m.name);
           return (
@@ -1404,147 +1586,74 @@ function Result({
                 userSelect: mine ? "auto" : "none",
               }}
             >
-              <div
-                className="flex items-center justify-between"
-                style={{ marginBottom: 7 }}
-              >
-                <span
-                  style={{
-                    fontFamily: FONT_BODY,
-                    fontSize: 11,
-                    color: mine ? C.yolk : C.muted,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.18em",
-                    fontWeight: 700,
-                  }}
-                >
-                  {mine ? "🟨 " : ""}
-                  {m.name}
-                  {mine ? " — FuelBox" : " — your side"}
+              <div className="flex items-center justify-between" style={{ marginBottom: 4 }}>
+                <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: mine ? C.yolk : C.muted, textTransform: "uppercase", letterSpacing: "0.18em", fontWeight: 700 }}>
+                  {mine ? "🟨 " : ""}{m.name}{mine ? " — FuelBox" : " — your side"}
                 </span>
-                <span
-                  style={{
-                    fontFamily: FONT_BODY,
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: mine ? C.yolk : C.muted,
-                  }}
-                >
-                  {kcalOfMeal(m)} kcal
+                <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: mine ? C.yolk : C.muted }}>
+                  {(() => { const cur = kcalOfMeal(m); const lim = getMealLimit(m.name); return `${cur} / ${lim} kcal`; })()}
                 </span>
               </div>
-              {m.items.map((it: any) => (
-                <div
-                  key={it.id}
-                  className="flex items-center justify-between"
-                  style={{
-                    padding: "8px 0",
-                    borderBottom: `1px solid rgba(0,0,0,0.04)`,
-                  }}
-                >
-                  <span className="flex items-center" style={{ gap: 9 }}>
-                    <FoodMark type={ing[it.id].t} size={13} />
-                    <span
-                      style={{
-                        fontFamily: FONT_BODY,
-                        fontSize: 14,
-                        color: C.bone,
-                        display: "flex",
-                        flexDirection: "column",
-                      }}
-                    >
-                      <span>{ing[it.id].n}</span>
-                      <span
-                        style={{
-                          color: C.muted,
-                          fontSize: 12,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                          marginTop: 4,
-                        }}
-                      >
-                        {fmtQty(ing, it)}
-                        {mine && (
-                          <span
-                            className="inline-flex items-center"
-                            style={{ gap: 4 }}
-                          >
-                            <button
-                              onClick={() => handleUpdateQty(m.name, it.id, -1)}
-                              style={{
-                                width: 20,
-                                height: 20,
-                                borderRadius: "50%",
-                                border: `1px solid ${C.line}`,
-                                background: C.card,
-                                color: C.bone,
-                                display: "inline-flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                cursor: "pointer",
-                                fontWeight: "bold",
-                                fontSize: 12,
-                              }}
-                            >
-                              -
-                            </button>
-                            <button
-                              onClick={() => handleUpdateQty(m.name, it.id, 1)}
-                              style={{
-                                width: 20,
-                                height: 20,
-                                borderRadius: "50%",
-                                border: `1px solid ${C.line}`,
-                                background: C.card,
-                                color: C.bone,
-                                display: "inline-flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                cursor: "pointer",
-                                fontWeight: "bold",
-                                fontSize: 12,
-                              }}
-                            >
-                              +
-                            </button>
+              {mine && (() => {
+                const cur = kcalOfMeal(m);
+                const lim = getMealLimit(m.name);
+                const pct = lim > 0 ? Math.min(100, Math.round((cur / lim) * 100)) : 0;
+                const isFull = cur >= lim;
+                return (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ height: 6, background: C.line, borderRadius: 6, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${pct}%`, background: isFull && cur === lim ? C.yolk : isFull ? C.nonveg : C.yolk, borderRadius: 6, transition: "width 300ms" }} />
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.muted, marginTop: 4, fontWeight: 600, gap: 8 }}>
+                      <span>{pct}%</span>
+                      <span style={{ color: isFull && cur === lim ? C.yolk : isFull ? C.nonveg : C.muted, fontWeight: 700 }}>{isFull && cur === lim ? `${m.name} calorie limit reached` : isFull ? "Limit exceeded" : `${lim - cur} kcal left`}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+              {m.items.length === 0 ? (
+                <div style={{ fontSize: 12, color: C.muted, padding: "8px 0", fontStyle: "italic" }}>No foods selected for {m.name}. Add foods below.</div>
+              ) : (
+                m.items.map((it: any) => {
+                  const cal = Math.round(kOf(ing, it.id, it.g));
+                  const pro = Math.round(pOf(ing, it.id, it.g));
+                  const carbs = Math.round(cOf(ing, it.id, it.g));
+                  const fat = Math.round(fOf(ing, it.id, it.g));
+                  const fib = Math.round(fiOf(ing, it.id, it.g) * 10) / 10;
+                  return (
+                    <div key={it.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2" style={{ padding: "10px 0", borderBottom: `1px solid rgba(0,0,0,0.04)` }}>
+                      <span className="flex items-start" style={{ gap: 9, flex: 1, minWidth: 0 }}>
+                        <FoodMark type={ing[it.id].t} size={13} />
+                        <span style={{ fontFamily: FONT_BODY, fontSize: 14, color: C.bone, display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
+                          <span style={{ fontWeight: 700, wordBreak: "break-word" }}>{ing[it.id].n}</span>
+                          <span style={{ color: C.muted, fontSize: 11, display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4, lineHeight: 1.4, alignItems: "center" }}>
+                            <span>{fmtQty(ing, it)}</span>
+                            <span>•</span><span>{cal} kcal</span>
+                            <span>•</span><span>{pro}g P</span>
+                            <span>•</span><span>{carbs}g C</span>
+                            <span>•</span><span>{fat}g F</span>
+                            <span>•</span><span>{fib}g Fiber</span>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, marginLeft: 4, padding: "2px 6px", borderRadius: 6, background: ing[it.id].t==='veg' ? '#DCFCE7' : ing[it.id].t==='egg' ? '#FEF3C7' : '#FEE2E2', color: ing[it.id].t==='veg' ? C.veg : ing[it.id].t==='egg' ? C.egg : C.nonveg, fontWeight: 700, textTransform: "capitalize", fontSize: 10 }}>{ing[it.id].t}</span>
                           </span>
-                        )}
+                        </span>
                       </span>
-                    </span>
-                  </span>
-                  {pOf(ing, it.id, it.g) >= 1 ? (
-                    <span
-                      style={{
-                        fontFamily: FONT_BODY,
-                        fontSize: 13,
-                        fontWeight: 700,
-                        color: C.yolk,
-                      }}
-                    >
-                      {Math.round(pOf(ing, it.id, it.g))}g protein
-                    </span>
-                  ) : (
-                    <span
-                      style={{
-                        fontFamily: FONT_BODY,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color: C.muted,
-                      }}
-                    >
-                      vitamins ✓
-                    </span>
-                  )}
-                </div>
-              ))}
+                      {mine && (
+                        <button onClick={() => handleRemoveItem(m.name, it.id)} style={{ background: "#FEE2E2", color: C.nonveg, border: `1px solid #FCA5A5`, borderRadius: 8, padding: "8px 14px", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0, minHeight: 36, minWidth: 72 }} className="hover:bg-red-100 active:scale-95 transition">Remove</button>
+                      )}
+                    </div>
+                  );
+                })
+              )}
               {mine && (
                 <div style={{ marginTop: 10 }}>
                   <select
                     value=""
                     onChange={(e) => {
                       const newId = e.target.value;
-                      if (newId) handleAddItem(m.name, newId);
+                      if (newId) {
+                        handleAddItem(m.name, newId);
+                        e.target.value = "";
+                      }
                     }}
                     style={{
                       fontFamily: FONT_BODY,
@@ -1553,28 +1662,41 @@ function Result({
                       background: "rgba(22,163,74,0.06)",
                       border: `1px dashed ${C.yolk}`,
                       borderRadius: 8,
-                      padding: "5px 10px",
+                      padding: "8px 10px",
                       cursor: "pointer",
                       outline: "none",
                       width: "100%",
+                      minHeight: 44,
                     }}
                   >
                     <option value="" disabled>
-                      + Add ingredient to {m.name}
+                      + Add food to {m.name} — {kcalOfMeal(m)}/{getMealLimit(m.name)} kcal
                     </option>
-                    {Object.keys(BASE_ING).map((key) => {
-                      const name = BASE_ING[key].n;
-                      const alreadyInMeal = m.items.some(
-                        (it: any) => it.id === key,
-                      );
-                      if (alreadyInMeal) return null;
-                      return (
-                        <option key={key} value={key}>
-                          {name}
-                        </option>
-                      );
-                    })}
+                    {Object.entries(ing)
+                      .filter(([id]) => !m.items.some((it: any) => it.id === id))
+                      .filter(([id, d]) => {
+                        if (a.food === "veg" && (d as any).t !== "veg") return false;
+                        if (a.food === "egg" && (d as any).t === "nonveg") return false;
+                        return true;
+                      })
+                      .map(([id, d]) => {
+                        const canAdd = canAddToMeal(m.name, id);
+                        const kcal = Math.round(kOf(ing, id, (d as any).unit || 50));
+                        return (
+                          <option key={id} value={id} disabled={!canAdd} style={{ color: canAdd ? C.bone : C.muted }}>
+                            {(d as any).n} — {kcal} kcal {canAdd ? "" : "(would exceed)"}
+                          </option>
+                        );
+                      })}
                   </select>
+                  <div style={{ fontSize: 10, color: C.muted, marginTop: 6, lineHeight: 1.4 }}>
+                    {(() => {
+                      const cur = kcalOfMeal(m);
+                      const lim = getMealLimit(m.name);
+                      const rem = lim - cur;
+                      return rem <= 0 ? `${m.name} limit reached (${lim} kcal)` : `${rem} kcal remaining in ${m.name}`;
+                    })()}
+                  </div>
                 </div>
               )}
             </div>
@@ -1782,6 +1904,19 @@ function Result({
         Timelines are estimates from standard nutrition math, assuming strict
         diet + regular home workout. Not medical advice.
       </div>
+      {/* Toast for meal calorie limit */}
+      {toast && (
+        <div style={{ position: "fixed", bottom: 90, left: "50%", transform: "translateX(-50%)", background: C.bone, color: "#fff", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700, padding: "12px 16px", borderRadius: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 9999, maxWidth: "90vw", textAlign: "center", lineHeight: 1.4 }}>
+          {toast.includes(" — ") ? (
+            <>
+              <div style={{ fontWeight: 800, marginBottom: 2 }}>{toast.split(" — ")[0]}</div>
+              <div style={{ fontWeight: 500, fontSize: 12, opacity: 0.9 }}>{toast.split(" — ")[1]}</div>
+            </>
+          ) : (
+            <div>{toast}</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1884,6 +2019,9 @@ export default function Onboarding() {
             overrides[targetKey] = {
               k: Number(row.calories ?? BASE_ING[targetKey].k),
               p: Number(row.protein_g ?? row.protein ?? BASE_ING[targetKey].p),
+              c: Number(row.carbs_g ?? (BASE_ING[targetKey] as any).c ?? 0),
+              f: Number(row.fat_g ?? (BASE_ING[targetKey] as any).f ?? 0),
+              fi: Number(row.fiber_g ?? (BASE_ING[targetKey] as any).fi ?? 0),
               price: Number(row.price ?? BASE_ING[targetKey].price),
             };
           }
@@ -1892,10 +2030,6 @@ export default function Onboarding() {
         if (Object.keys(overrides).length > 0) {
           setIngOverrides(overrides);
           setDbLoaded(true);
-          console.log(
-            "[Onboarding] Mapped menu item prices from local DB:",
-            data.length,
-          );
         }
       } catch (err) {
         console.warn("Failed to load menu items from API:", err);

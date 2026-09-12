@@ -1,29 +1,50 @@
-import { Sequelize, DataTypes, Model } from 'sequelize';
-import mysql2 from 'mysql2';
+import { Sequelize, DataTypes } from 'sequelize';
 
-const DB_HOST = process.env.DB_HOST || 'localhost';
-const DB_PORT = Number(process.env.DB_PORT) || 3306;
-const DB_USER = process.env.DB_USER || 'root';
-const DB_PASSWORD = process.env.DB_PASSWORD || '';
-const DB_NAME = process.env.DB_NAME || 'fuelbox_db';
+// Neon PostgreSQL is the primary DB (DATABASE_URL).
+// Fallback to legacy MySQL env (DB_HOST etc.) for local dev without DATABASE_URL.
+const DATABASE_URL = process.env.DATABASE_URL?.trim();
 
 let sequelizeInstance: Sequelize | null = null;
 
 export function getSequelize(): Sequelize {
-  if (!sequelizeInstance) {
-    sequelizeInstance = new Sequelize(DB_NAME, DB_USER, DB_PASSWORD, {
-      host: DB_HOST,
-      port: DB_PORT,
-      dialect: 'mysql',
-      dialectModule: mysql2,
+  if (sequelizeInstance) return sequelizeInstance;
+
+  if (DATABASE_URL) {
+    // Neon PostgreSQL — requires SSL
+    sequelizeInstance = new Sequelize(DATABASE_URL, {
+      dialect: 'postgres',
       logging: false,
+      dialectOptions: {
+        ssl: { require: true, rejectUnauthorized: false },
+      },
+      // Neon/pg works best without dialectModule override; pg is auto-required
     });
+    return sequelizeInstance;
   }
+
+  // Fallback: legacy MySQL (local dev)
+  // Keep mysql2 only when DATABASE_URL is not set
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const mysql2 = require('mysql2');
+  const DB_HOST = process.env.DB_HOST || 'localhost';
+  const DB_PORT = Number(process.env.DB_PORT) || 3306;
+  const DB_USER = process.env.DB_USER || 'root';
+  const DB_PASSWORD = process.env.DB_PASSWORD || '';
+  const DB_NAME = process.env.DB_NAME || 'fuelbox_db';
+
+  sequelizeInstance = new Sequelize(DB_NAME, DB_USER, DB_PASSWORD, {
+    host: DB_HOST,
+    port: DB_PORT,
+    dialect: 'mysql',
+    dialectModule: mysql2,
+    logging: false,
+  });
   return sequelizeInstance;
 }
 
 export function defineModels(sequelize: Sequelize) {
   const MenuItem = sequelize.define('menu_items', {
+    // BIGINT autoIncrement → BIGSERIAL on Postgres, AUTO_INCREMENT on MySQL — compatible
     id: { type: DataTypes.BIGINT, autoIncrement: true, primaryKey: true },
     name: { type: DataTypes.STRING, allowNull: false },
     description: { type: DataTypes.TEXT, defaultValue: '' },
@@ -174,6 +195,10 @@ export function defineModels(sequelize: Sequelize) {
     skipped_meals: { type: DataTypes.JSON, defaultValue: [] },
     actual_end_date: { type: DataTypes.DATEONLY, allowNull: true },
     notes: { type: DataTypes.TEXT, allowNull: true },
+    auto_renew: { type: DataTypes.BOOLEAN, defaultValue: false },
+    auto_renew_days: { type: DataTypes.INTEGER, allowNull: true },
+    renewal_history: { type: DataTypes.JSON, defaultValue: [] },
+    last_renewed_at: { type: DataTypes.DATE, allowNull: true },
   }, { underscored: true });
 
   const MealDelivery = sequelize.define('meal_deliveries', {
@@ -199,26 +224,42 @@ export function defineModels(sequelize: Sequelize) {
 }
 
 // Safe, non-destructive schema sync: creates missing tables and only ADDs missing
-// columns. It never ALTERs existing columns or indexes (the previous `sync({ alter: true })`
-// regenerated every column with `ALTER TABLE ... CHANGE`, which breaks on unique columns
-// with MySQL error "Too many keys specified; max 64 keys allowed").
+// columns. Works for both MySQL and PostgreSQL (Neon).
 async function syncSchema(sequelize: Sequelize, models: Record<string, any>) {
   const qi = sequelize.getQueryInterface();
-  const existingTables = await qi.showAllTables();
+  // showAllTables is dialect-specific:
+  // - MySQL: ['menu_items', 'users', ...]
+  // - Postgres: ['public.menu_items', ...] or [{tableName, schema}]
+  const rawTables: any[] = await qi.showAllTables();
+  const existingTables = rawTables.map((t: any) => {
+    if (typeof t === 'string') return t.includes('.') ? t.split('.').pop()! : t;
+    if (t && typeof t === 'object') {
+      const v = (t as any).tableName || (t as any).table_name || Object.values(t)[0];
+      if (typeof v === 'string') return v.includes('.') ? v.split('.').pop()! : v;
+    }
+    return String(t);
+  }).map((s: string) => s.toLowerCase());
+
   for (const model of Object.values(models)) {
     const table = model.getTableName();
-    const tableName = typeof table === 'string' ? table : table.tableName;
-    if (!existingTables.includes(tableName)) {
+    const tableName = typeof table === 'string' ? table : (table as any).tableName;
+    const normalizedTable = tableName.toLowerCase();
+    if (!existingTables.includes(normalizedTable)) {
       await model.sync();
       continue;
     }
     const columns = await qi.describeTable(tableName);
+    // describeTable keys are lowercased in PG; normalize for check
+    const colKeys = Object.keys(columns).reduce((acc: Record<string, string>, k) => {
+      acc[k.toLowerCase()] = k;
+      return acc;
+    }, {});
     const attributes = model.getAttributes();
     for (const attrName of Object.keys(attributes)) {
       const attr = attributes[attrName];
-      const colName = attr.field || attrName;
-      if (columns[colName]) continue;
-      await qi.addColumn(tableName, colName, attr);
+      const colName = (attr.field || attrName) as string;
+      if (colKeys[colName.toLowerCase()]) continue;
+      await qi.addColumn(tableName, colName, attr as any);
     }
   }
 }
@@ -230,7 +271,6 @@ export async function getDbModels() {
     await sequelize.authenticate();
     await syncSchema(sequelize, models);
   } catch (err: any) {
-    // If database connection fails in dev environment, models handle graceful fallbacks
     console.warn('[DB] Schema sync skipped:', err?.message || err);
   }
   return models;

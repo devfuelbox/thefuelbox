@@ -24,7 +24,7 @@ function computeStatus(total: number, paid: number): string {
 
 export async function GET(req: Request) {
   const auth = verifyAdminToken(req);
-  if (!auth.valid || !['admin', 'super_admin', 'verifier'].includes(auth.role || '')) {
+  if (!auth.valid || !['admin', 'super_admin', 'sales'].includes(auth.role || '')) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   }
 
@@ -43,7 +43,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const auth = verifyAdminToken(req);
-  if (!auth.valid || !['admin', 'super_admin', 'verifier'].includes(auth.role || '')) {
+  if (!auth.valid || !['admin', 'super_admin', 'sales'].includes(auth.role || '')) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   }
 
@@ -88,7 +88,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   const auth = verifyAdminToken(req);
-  if (!auth.valid || !['admin', 'super_admin', 'verifier'].includes(auth.role || '')) {
+  if (!auth.valid || !['admin', 'super_admin', 'sales'].includes(auth.role || '')) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   }
 
@@ -159,7 +159,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   const auth = verifyAdminToken(req);
-  if (!auth.valid || !['admin', 'super_admin', 'verifier'].includes(auth.role || '')) {
+  if (!auth.valid || !['admin', 'super_admin', 'sales'].includes(auth.role || '')) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   }
 

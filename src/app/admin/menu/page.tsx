@@ -15,6 +15,8 @@ import {
 
 type PriceUnit = 'kg' | 'piece';
 
+type DietType = 'veg' | 'egg' | 'non_veg';
+
 interface MenuItem {
   id: string | number;
   name: string;
@@ -26,11 +28,18 @@ interface MenuItem {
   carbs_g?: number;
   fat_g?: number;
   fiber_g?: number;
-  diet: 'veg' | 'non_veg';
+  diet: DietType;
   category: string;
   cookable: boolean;
   is_available: boolean;
 }
+
+const getDietConfig = (diet: string) => {
+  const d = diet?.toLowerCase();
+  if (d === 'egg') return { label: '🥚 Egg', classes: 'bg-amber-100 text-amber-700 border border-amber-200' };
+  if (d === 'non_veg') return { label: '🔴 Non-Veg', classes: 'bg-red-100 text-red-700 border border-red-200' };
+  return { label: '🟢 Veg', classes: 'bg-emerald-100 text-emerald-700 border border-emerald-200' };
+};
 
 export default function AdminMenuPage() {
   const [items, setItems] = useState<MenuItem[]>([]);
@@ -68,7 +77,7 @@ export default function AdminMenuPage() {
     carbs_g: 20,
     fat_g: 5,
     fiber_g: 3,
-    diet: 'veg' as 'veg' | 'non_veg',
+    diet: 'veg' as DietType,
     category: 'main',
     cookable: false,
     is_available: true,
@@ -145,6 +154,11 @@ export default function AdminMenuPage() {
     setEditingItem({
       ...item,
       price_unit: item.price_unit || 'piece',
+      calories: item.calories ?? 0,
+      protein_g: item.protein_g ?? 0,
+      carbs_g: item.carbs_g ?? 0,
+      fat_g: item.fat_g ?? 0,
+      fiber_g: item.fiber_g ?? 0,
     });
 
     setShowEditModal(true);
@@ -179,6 +193,11 @@ export default function AdminMenuPage() {
               editingItem.price_unit || 'piece',
             is_available:
               editingItem.is_available,
+            calories: Number(editingItem.calories) || 0,
+            protein_g: Number(editingItem.protein_g) || 0,
+            carbs_g: Number(editingItem.carbs_g) || 0,
+            fat_g: Number(editingItem.fat_g) || 0,
+            fiber_g: Number(editingItem.fiber_g) || 0,
           }),
         }
       );
@@ -207,6 +226,11 @@ export default function AdminMenuPage() {
                   'piece',
                 is_available:
                   editingItem.is_available,
+                calories: Number(editingItem.calories) || 0,
+                protein_g: Number(editingItem.protein_g) || 0,
+                carbs_g: Number(editingItem.carbs_g) || 0,
+                fat_g: Number(editingItem.fat_g) || 0,
+                fiber_g: Number(editingItem.fiber_g) || 0,
               }
             : item
         )
@@ -474,480 +498,271 @@ export default function AdminMenuPage() {
   // --------------------------------------------------
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6 w-full min-w-0 overflow-hidden">
 
       {/* HEADER */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-extrabold text-gray-900">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-gray-900 leading-tight break-words">
             Food Item & Pricing Management
           </h1>
-
-          <p className="text-gray-500 text-sm mt-1">
-            Add new meals, update prices,
-            manage food types and stock
-            availability.
+          <p className="text-gray-500 text-xs sm:text-sm mt-1 leading-relaxed">
+            Add new meals, update prices, manage food types and stock availability.
           </p>
         </div>
-
         <button
-          onClick={() =>
-            setShowAddModal(true)
-          }
-          className="px-5 py-2.5 bg-brand-600 text-white font-bold rounded-xl shadow hover:bg-brand-700 transition flex items-center space-x-2 text-sm"
+          onClick={() => setShowAddModal(true)}
+          className="w-full sm:w-auto shrink-0 px-5 py-3 sm:py-2.5 bg-brand-600 text-white font-bold rounded-xl shadow hover:bg-brand-700 active:scale-[0.98] transition flex items-center justify-center gap-2 text-sm min-h-[44px]"
         >
-          <Plus className="w-4 h-4" />
-
-          <span>
-            Add New Food Item
-          </span>
+          <Plus className="w-4 h-4 shrink-0" />
+          <span>Add New Food Item</span>
         </button>
       </div>
 
       {/* SEARCH */}
-      <div className="relative max-w-md">
-        <Search className="w-4 h-4 absolute left-3 top-3.5 text-gray-400" />
-
+      <div className="relative w-full sm:max-w-md">
+        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
         <input
           type="text"
           placeholder="Filter food items by name or category..."
           value={search}
           onChange={(e) => {
-            setSearch(
-              e.target.value
-            );
-
+            setSearch(e.target.value);
             setCurrentPage(1);
           }}
-          className="w-full pl-9 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500"
+          className="w-full pl-9 pr-4 py-3 sm:py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-gray-400"
         />
       </div>
 
-      {/* TABLE */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-
+      {/* DESKTOP TABLE - hidden on mobile, visible on lg+ */}
+      <div className="hidden lg:block bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
-
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100 text-xs font-bold text-gray-400 uppercase tracking-wider">
-
-                <th className="py-4 px-6">
-                  Item Name
-                </th>
-
-                <th className="py-4 px-6">
-                  Food Type
-                </th>
-
-                <th className="py-4 px-6">
-                  Category
-                </th>
-
-                <th className="py-4 px-6">
-                  Price
-                </th>
-
-                <th className="py-4 px-6">
-                  Cookable
-                </th>
-
-                <th className="py-4 px-6">
-                  Status
-                </th>
-
-                <th className="py-4 px-6 text-right">
-                  Actions
-                </th>
-
+                <th className="py-4 px-6">Item Name</th>
+                <th className="py-4 px-6">Food Type</th>
+                <th className="py-4 px-6">Category</th>
+                <th className="py-4 px-6">Fiber (g)</th>
+                <th className="py-4 px-6">Fat (g)</th>
+                <th className="py-4 px-6">Carbs (g)</th>
+                <th className="py-4 px-6">Protein (g)</th>
+                <th className="py-4 px-6">Price</th>
+                <th className="py-4 px-6">Cookable</th>
+                <th className="py-4 px-6">Status</th>
+                <th className="py-4 px-6 text-right">Actions</th>
               </tr>
             </thead>
-
             <tbody className="divide-y divide-gray-100 text-sm">
-
-              {/* LOADING */}
               {loading ? (
                 <tr>
-                  <td
-                    colSpan={7}
-                    className="py-12 text-center text-gray-400 font-medium"
-                  >
+                  <td colSpan={11} className="py-12 text-center text-gray-400 font-medium">
                     Loading food items...
                   </td>
                 </tr>
-
               ) : filtered.length === 0 ? (
-
-                /* EMPTY */
                 <tr>
-                  <td
-                    colSpan={7}
-                    className="py-12 text-center text-gray-400 font-medium"
-                  >
+                  <td colSpan={11} className="py-12 text-center text-gray-400 font-medium">
                     No food items found matching filter.
                   </td>
                 </tr>
-
               ) : (
-
-                /* ITEMS */
-                paginatedItems.map(
-                  (item) => (
-                    <tr
-                      key={item.id}
-                      className="hover:bg-gray-50/50 transition"
-                    >
-
-                      {/* NAME */}
-                      <td className="py-4 px-6 font-bold text-gray-900">
-
-                        {item.name}
-
-                        <span className="block text-xs font-normal text-gray-400">
-                          {item.calories || 0}{' '}
-                          kcal | P:{' '}
-                          {item.protein_g || 0}g
-                          {' '}C:{' '}
-                          {item.carbs_g || 0}g
-                          {' '}F:{' '}
-                          {item.fat_g || 0}g
-                        </span>
-
-                      </td>
-
-                      {/* FOOD TYPE */}
-                      <td className="py-4 px-6">
-
-                        <span
-                          className={`inline-block px-2 py-1 rounded-lg text-xs font-bold ${
-                            item.diet ===
-                            'non_veg'
-                              ? 'bg-red-100 text-red-700'
-                              : 'bg-emerald-100 text-emerald-700'
-                          }`}
-                        >
-                          {item.diet ===
-                          'non_veg'
-                            ? '🔴 Non-Veg'
-                            : '🟢 Veg'}
-                        </span>
-
-                      </td>
-
-                      {/* CATEGORY */}
-                      <td className="py-4 px-6 capitalize font-semibold text-gray-600">
-                        {item.category}
-                      </td>
-
-                      {/* PRICE */}
-                      <td className="py-4 px-6 font-bold text-gray-900">
-
-                        {editingPriceId ===
-                        item.id ? (
-
-                          <div className="flex items-center gap-1">
-
-                            <input
-                              type="number"
-                              step="0.5"
-                              value={
-                                editingPriceValue
-                              }
-                              onChange={(e) =>
-                                setEditingPriceValue(
-                                  e.target.value
-                                )
-                              }
-                              className="w-20 px-2 py-1 bg-gray-100 border border-brand-500 rounded text-sm font-bold"
-                            />
-
-                            <button
-                              onClick={() =>
-                                handleSavePrice(
-                                  item.id
-                                )
-                              }
-                              className="p-1 bg-brand-600 text-white rounded hover:bg-brand-700"
-                            >
-                              <Save className="w-3.5 h-3.5" />
-                            </button>
-
-                            <button
-                              onClick={() => {
-                                setEditingPriceId(
-                                  null
-                                );
-
-                                setEditingPriceValue(
-                                  ''
-                                );
-                              }}
-                              className="p-1 bg-gray-200 text-gray-600 rounded hover:bg-gray-300"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-
-                          </div>
-
-                        ) : (
-
-                          <div className="flex items-center gap-2">
-
-                            <span>
-                              ₹
-                              {Number(
-                                item.price
-                              ).toFixed(2)}
-                              {' / '}
-                              {item.price_unit ===
-                              'kg'
-                                ? 'Kg'
-                                : 'Piece'}
-                            </span>
-
-                            <button
-                              onClick={() => {
-                                setEditingPriceId(
-                                  item.id
-                                );
-
-                                setEditingPriceValue(
-                                  String(
-                                    item.price
-                                  )
-                                );
-                              }}
-                              className="text-gray-400 hover:text-brand-600"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-
-                          </div>
-
-                        )}
-
-                      </td>
-
-                      {/* COOKABLE */}
-                      <td className="py-4 px-6">
-
-                        {item.cookable ? (
-
-                          <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-xs font-semibold bg-energy-100 text-energy-700">
-
-                            <ChefHat className="w-3 h-3" />
-
-                            <span>
-                              Yes (+Rs.5)
-                            </span>
-
-                          </span>
-
-                        ) : (
-
-                          <span className="text-gray-400 text-xs">
-                            No
-                          </span>
-
-                        )}
-
-                      </td>
-
-                      {/* STATUS */}
-                      <td className="py-4 px-6">
-
-                        <button
-                          onClick={() =>
-                            handleToggleStock(
-                              item.id,
-                              item.is_available
-                            )
-                          }
-                          className={`px-3 py-1 rounded-full text-xs font-bold transition flex items-center space-x-1 ${
-                            item.is_available
-                              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                              : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
-                          }`}
-                        >
-
-                          {item.is_available ? (
-                            <Eye className="w-3 h-3" />
-                          ) : (
-                            <EyeOff className="w-3 h-3" />
-                          )}
-
-                          <span>
-                            {item.is_available
-                              ? 'In Stock'
-                              : 'Out of Stock'}
-                          </span>
-
-                        </button>
-
-                      </td>
-
-                      {/* ACTIONS */}
-                      <td className="py-4 px-6">
-
-                        <div className="flex items-center justify-end gap-2">
-
-                          {/* EDIT BUTTON */}
-                          <button
-                            onClick={() =>
-                              handleEditItem(
-                                item
-                              )
-                            }
-                            title="Edit Food Item"
-                            className="p-2 text-brand-600 hover:bg-brand-50 rounded-lg transition"
-                          >
-                            <Edit2 className="w-4 h-4" />
+                paginatedItems.map((item) => (
+                  <tr key={item.id} className="hover:bg-gray-50/50 transition">
+                    <td className="py-4 px-6 font-bold text-gray-900">
+                      <span className="block truncate max-w-[180px] xl:max-w-[220px]">{item.name}</span>
+                      <span className="block text-xs font-normal text-gray-400 mt-0.5">
+                        {item.calories || 0} kcal | P: {item.protein_g || 0}g C: {item.carbs_g || 0}g F: {item.fat_g || 0}g Fiber: {item.fiber_g || 0}g
+                      </span>
+                    </td>
+                    <td className="py-4 px-6">
+                      {(() => { const cfg = getDietConfig(item.diet); return <span className={`inline-block px-2 py-1 rounded-lg text-xs font-bold border ${cfg.classes}`}>{cfg.label}</span>; })()}
+                    </td>
+                    <td className="py-4 px-6 capitalize font-semibold text-gray-600">{item.category}</td>
+                    <td className="py-4 px-6 font-semibold text-gray-700">{item.fiber_g ?? 0}g</td>
+                    <td className="py-4 px-6 font-semibold text-gray-700">{item.fat_g ?? 0}g</td>
+                    <td className="py-4 px-6 font-semibold text-gray-700">{item.carbs_g ?? 0}g</td>
+                    <td className="py-4 px-6 font-semibold text-gray-700">{item.protein_g ?? 0}g</td>
+                    <td className="py-4 px-6 font-bold text-gray-900">
+                      {editingPriceId === item.id ? (
+                        <div className="flex items-center gap-1">
+                          <input type="number" step="0.5" value={editingPriceValue} onChange={(e) => setEditingPriceValue(e.target.value)} className="w-20 px-2 py-1 bg-gray-100 border border-brand-500 rounded text-sm font-bold focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                          <button onClick={() => handleSavePrice(item.id)} className="p-1 bg-brand-600 text-white rounded hover:bg-brand-700 transition">
+                            <Save className="w-3.5 h-3.5" />
                           </button>
-
-                          {/* DELETE BUTTON */}
-                          <button
-                            onClick={() =>
-                              handleDeleteItem(
-                                item.id
-                              )
-                            }
-                            title="Delete Food Item"
-                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
-                          >
-                            <Trash2 className="w-4 h-4" />
+                          <button onClick={() => { setEditingPriceId(null); setEditingPriceValue(''); }} className="p-1 bg-gray-200 text-gray-600 rounded hover:bg-gray-300 transition">
+                            <X className="w-3.5 h-3.5" />
                           </button>
-
                         </div>
-
-                      </td>
-
-                    </tr>
-                  )
-                )
-
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span>₹{Number(item.price).toFixed(2)} / {item.price_unit === 'kg' ? 'Kg' : 'Piece'}</span>
+                          <button onClick={() => { setEditingPriceId(item.id); setEditingPriceValue(String(item.price)); }} className="text-gray-400 hover:text-brand-600 transition p-1">
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-4 px-6">
+                      {item.cookable ? (
+                        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-xs font-semibold bg-energy-100 text-energy-700">
+                          <ChefHat className="w-3 h-3" />
+                          <span>Yes (+Rs.5)</span>
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 text-xs">No</span>
+                      )}
+                    </td>
+                    <td className="py-4 px-6">
+                      <button onClick={() => handleToggleStock(item.id, item.is_available)} className={`px-3 py-1 rounded-full text-xs font-bold transition flex items-center space-x-1 ${item.is_available ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}>
+                        {item.is_available ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                        <span>{item.is_available ? 'In Stock' : 'Out of Stock'}</span>
+                      </button>
+                    </td>
+                    <td className="py-4 px-6">
+                      <div className="flex items-center justify-end gap-2">
+                        <button onClick={() => handleEditItem(item)} title="Edit Food Item" className="p-2 text-brand-600 hover:bg-brand-50 rounded-lg transition">
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => handleDeleteItem(item.id)} title="Delete Food Item" className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
               )}
-
             </tbody>
-
           </table>
         </div>
+      </div>
 
-        {/* PAGINATION */}
-        {!loading &&
-          filtered.length > 0 &&
-          totalPages > 0 && (
-
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-gray-100">
-
-              {/* ITEM COUNT */}
-              <p className="text-sm text-gray-500">
-
-                Showing{' '}
-
-                <span className="font-semibold text-gray-700">
-                  {startIndex + 1}
-                </span>
-
-                {' '}to{' '}
-
-                <span className="font-semibold text-gray-700">
-                  {Math.min(
-                    endIndex,
-                    filtered.length
-                  )}
-                </span>
-
-                {' '}of{' '}
-
-                <span className="font-semibold text-gray-700">
-                  {filtered.length}
-                </span>
-
-                {' '}items
-
-              </p>
-
-              {/* CONTROLS */}
-              <div className="flex items-center gap-2">
-
-                {/* PREVIOUS */}
-                <button
-                  onClick={() =>
-                    setCurrentPage(
-                      (prev) =>
-                        Math.max(
-                          prev - 1,
-                          1
-                        )
-                    )
-                  }
-                  disabled={
-                    currentPage === 1
-                  }
-                  className="px-4 py-2 text-sm font-semibold rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Previous
-                </button>
-
-                {/* PAGE NUMBERS */}
-                <div className="flex items-center gap-1">
-
-                  {Array.from(
-                    {
-                      length: totalPages,
-                    },
-                    (_, index) =>
-                      index + 1
-                  ).map((page) => (
-
-                    <button
-                      key={page}
-                      onClick={() =>
-                        setCurrentPage(
-                          page
-                        )
-                      }
-                      className={`w-9 h-9 rounded-lg text-sm font-semibold transition ${
-                        currentPage ===
-                        page
-                          ? 'bg-brand-600 text-white'
-                          : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-                      }`}
-                    >
-                      {page}
-                    </button>
-
-                  ))}
-
+      {/* MOBILE CARDS - visible on mobile, hidden on lg+ */}
+      <div className="lg:hidden space-y-3">
+        {loading ? (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
+            <div className="inline-flex items-center gap-2 text-gray-400 font-medium text-sm">
+              <div className="w-4 h-4 border-2 border-gray-300 border-t-brand-600 rounded-full animate-spin" />
+              Loading food items...
+            </div>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center text-gray-400 font-medium text-sm">
+            No food items found matching filter.
+          </div>
+        ) : (
+          paginatedItems.map((item) => (
+            <div key={item.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3 transition hover:shadow-md">
+              {/* Header: Name + Diet badge */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-bold text-gray-900 text-[15px] leading-tight break-words">{item.name}</h3>
+                  <p className="text-xs text-gray-500 mt-1 capitalize flex flex-wrap items-center gap-1.5">
+                    <span className="truncate">{item.category}</span>
+                    <span className="w-1 h-1 rounded-full bg-gray-300 shrink-0" />
+                    <span className="shrink-0">{item.calories || 0} kcal</span>
+                    {item.cookable && (
+                      <>
+                        <span className="w-1 h-1 rounded-full bg-gray-300 shrink-0" />
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-energy-700 bg-energy-50 px-1.5 py-0.5 rounded shrink-0">
+                          <ChefHat className="w-3 h-3" />
+                          Cookable +Rs.5
+                        </span>
+                      </>
+                    )}
+                  </p>
                 </div>
-
-                {/* NEXT */}
-                <button
-                  onClick={() =>
-                    setCurrentPage(
-                      (prev) =>
-                        Math.min(
-                          prev + 1,
-                          totalPages
-                        )
-                    )
-                  }
-                  disabled={
-                    currentPage ===
-                    totalPages
-                  }
-                  className="px-4 py-2 text-sm font-semibold rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Next
-                </button>
-
+                {(() => { const cfg = getDietConfig(item.diet); return <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${cfg.classes}`}>{cfg.label}</span>; })()}
               </div>
 
+              {/* Nutrition grid - 2 columns, compact */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2.5 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Fiber</p>
+                  <p className="text-sm font-bold text-gray-900 mt-1">{item.fiber_g ?? 0}<span className="text-xs font-medium text-gray-500"> g</span></p>
+                </div>
+                <div className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2.5 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Fat</p>
+                  <p className="text-sm font-bold text-gray-900 mt-1">{item.fat_g ?? 0}<span className="text-xs font-medium text-gray-500"> g</span></p>
+                </div>
+                <div className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2.5 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Carbs</p>
+                  <p className="text-sm font-bold text-gray-900 mt-1">{item.carbs_g ?? 0}<span className="text-xs font-medium text-gray-500"> g</span></p>
+                </div>
+                <div className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2.5 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Protein</p>
+                  <p className="text-sm font-bold text-gray-900 mt-1">{item.protein_g ?? 0}<span className="text-xs font-medium text-gray-500"> g</span></p>
+                </div>
+              </div>
+
+              {/* Price + Status row */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  {editingPriceId === item.id ? (
+                    <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                      <input type="number" step="0.5" value={editingPriceValue} onChange={(e) => setEditingPriceValue(e.target.value)} className="flex-1 min-w-0 px-3 py-2.5 bg-gray-50 border border-brand-500 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="Price" />
+                      <button onClick={() => handleSavePrice(item.id)} className="shrink-0 p-2.5 bg-brand-600 text-white rounded-xl hover:bg-brand-700 transition min-w-[44px] min-h-[44px] flex items-center justify-center">
+                        <Save className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => { setEditingPriceId(null); setEditingPriceValue(''); }} className="shrink-0 p-2.5 bg-gray-100 text-gray-600 rounded-xl hover:bg-gray-200 transition min-w-[44px] min-h-[44px] flex items-center justify-center">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="font-bold text-gray-900 text-sm shrink-0">₹{Number(item.price).toFixed(2)}<span className="text-gray-500 font-medium text-xs"> / {item.price_unit === 'kg' ? 'Kg' : 'Piece'}</span></span>
+                      <button onClick={() => { setEditingPriceId(item.id); setEditingPriceValue(String(item.price)); }} className="p-2 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition shrink-0 min-w-[36px] min-h-[36px] flex items-center justify-center" aria-label="Edit price">
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+                </div>
+                <button onClick={() => handleToggleStock(item.id, item.is_available)} className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-bold transition min-h-[36px] ${item.is_available ? 'bg-emerald-100 text-emerald-700 active:bg-emerald-200' : 'bg-gray-100 text-gray-600 active:bg-gray-200'}`}>
+                  {item.is_available ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                  <span>{item.is_available ? 'In Stock' : 'Out of Stock'}</span>
+                </button>
+              </div>
+
+              {/* Actions */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button onClick={() => handleEditItem(item)} className="inline-flex items-center justify-center gap-2 py-3.5 rounded-xl bg-brand-600 text-white font-bold text-sm min-h-[44px] active:scale-[0.98] hover:bg-brand-700 transition shadow-sm">
+                  <Edit2 className="w-4 h-4" />
+                  Edit
+                </button>
+                <button onClick={() => handleDeleteItem(item.id)} className="inline-flex items-center justify-center gap-2 py-3.5 rounded-xl bg-white border border-red-200 text-red-600 font-bold text-sm min-h-[44px] active:scale-[0.98] hover:bg-red-50 transition">
+                  <Trash2 className="w-4 h-4" />
+                  Delete
+                </button>
+              </div>
             </div>
-
-          )}
-
+          ))
+        )}
       </div>
+
+      {/* PAGINATION - shared, responsive */}
+      {!loading && filtered.length > 0 && totalPages > 0 && (
+        <div className="bg-white lg:bg-white rounded-2xl border border-gray-100 shadow-sm px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <p className="text-sm text-gray-500 text-center sm:text-left">
+            Showing <span className="font-semibold text-gray-700">{startIndex + 1}</span> to <span className="font-semibold text-gray-700">{Math.min(endIndex, filtered.length)}</span> of <span className="font-semibold text-gray-700">{filtered.length}</span> items
+          </p>
+          <div className="flex items-center gap-2 flex-wrap justify-center">
+            <button onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))} disabled={currentPage === 1} className="px-4 py-2.5 text-sm font-semibold rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition min-h-[44px]">
+              Previous
+            </button>
+            <div className="flex items-center gap-1 flex-wrap justify-center max-w-[200px] sm:max-w-none">
+              {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
+                <button key={page} onClick={() => setCurrentPage(page)} className={`w-9 h-9 sm:w-9 sm:h-9 rounded-xl text-sm font-semibold transition min-w-[36px] min-h-[36px] ${currentPage === page ? 'bg-brand-600 text-white shadow' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}>
+                  {page}
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))} disabled={currentPage === totalPages} className="px-4 py-2.5 text-sm font-semibold rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition min-h-[44px]">
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+
 
       {/* ================================================ */}
       {/* EDIT FOOD MODAL */}
@@ -955,197 +770,104 @@ export default function AdminMenuPage() {
 
       {showEditModal &&
         editingItem && (
-
-          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-
-            <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+            <div className="bg-white w-full max-w-lg rounded-2xl sm:rounded-3xl shadow-2xl max-h-[92vh] sm:max-h-[90vh] overflow-y-auto overscroll-contain my-auto">
 
               {/* MODAL HEADER */}
-              <div className="flex items-center justify-between p-6 border-b border-gray-100">
-
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900">
-                    Edit Food Item
-                  </h2>
-
-                  <p className="text-sm text-gray-500 mt-1">
-                    Update food information
-                  </p>
+              <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-100 sticky top-0 bg-white rounded-t-2xl sm:rounded-t-3xl z-10">
+                <div className="min-w-0 pr-3">
+                  <h2 className="text-lg sm:text-xl font-bold text-gray-900 leading-tight">Edit Food Item</h2>
+                  <p className="text-xs sm:text-sm text-gray-500 mt-1">Update food information</p>
                 </div>
-
                 <button
                   onClick={() => {
-                    setShowEditModal(
-                      false
-                    );
-
-                    setEditingItem(
-                      null
-                    );
+                    setShowEditModal(false);
+                    setEditingItem(null);
                   }}
-                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
+                  className="shrink-0 p-2.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition min-w-[44px] min-h-[44px] flex items-center justify-center"
+                  aria-label="Close"
                 >
                   <X className="w-5 h-5" />
                 </button>
-
               </div>
 
               {/* EDIT FORM */}
-              <form
-                onSubmit={
-                  handleEditSubmit
-                }
-                className="p-6 space-y-5"
-              >
+              <form onSubmit={handleEditSubmit} className="p-4 sm:p-6 space-y-4 sm:space-y-5">
 
                 {/* FOOD NAME */}
-                <div>
-
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Food Name
-                  </label>
-
-                  <input
-                    type="text"
-                    required
-                    value={
-                      editingItem.name
-                    }
-                    onChange={(e) =>
-                      setEditingItem({
-                        ...editingItem,
-                        name: e.target.value,
-                      })
-                    }
-                    placeholder="Enter food name"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  />
-
+                <div className="min-w-0">
+                  <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-2">Food Name</label>
+                  <input type="text" required value={editingItem.name} onChange={(e) => setEditingItem({ ...editingItem, name: e.target.value, })} placeholder="Enter food name" className="w-full min-w-0 px-3 sm:px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm placeholder:text-gray-400" />
                 </div>
 
                 {/* FOOD TYPE */}
-                <div>
-
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Food Type
-                  </label>
-
-                  <select
-                    value={
-                      editingItem.diet
-                    }
-                    onChange={(e) =>
-                      setEditingItem({
-                        ...editingItem,
-                        diet: e.target
-                          .value as
-                          | 'veg'
-                          | 'non_veg',
-                      })
-                    }
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  >
-                    <option value="veg">
-                      🟢 Veg
-                    </option>
-
-                    <option value="non_veg">
-                      🔴 Non-Veg
-                    </option>
-
+                <div className="min-w-0">
+                  <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-2">Food Type</label>
+                  <select value={editingItem.diet} onChange={(e) => setEditingItem({ ...editingItem, diet: e.target.value as DietType, })} className="w-full min-w-0 px-3 sm:px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm">
+                    <option value="veg">🟢 Veg</option>
+                    <option value="egg">🥚 Egg</option>
+                    <option value="non_veg">🔴 Non-Veg</option>
                   </select>
-
                 </div>
 
                 {/* PRICE */}
-                <div>
-
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Price
-                  </label>
-
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    required
-                    value={
-                      editingItem.price
-                    }
-                    onChange={(e) =>
-                      setEditingItem({
-                        ...editingItem,
-                        price: Number(
-                          e.target.value
-                        ),
-                      })
-                    }
-                    placeholder="Enter price"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  />
-
+                <div className="min-w-0">
+                  <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-2">Price</label>
+                  <input type="number" min="0" step="0.01" required value={editingItem.price} onChange={(e) => setEditingItem({ ...editingItem, price: Number(e.target.value), })} placeholder="Enter price" className="w-full min-w-0 px-3 sm:px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm" />
                 </div>
 
                 {/* PRICE UNIT */}
-                <div>
-
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Price By
-                  </label>
-
-                  <div className="grid grid-cols-2 gap-3">
-
-                    {/* PER KG */}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setEditingItem({
-                          ...editingItem,
-                          price_unit: 'kg',
-                        })
-                      }
-                      className={`px-4 py-3 rounded-xl border-2 font-bold transition ${
-                        editingItem.price_unit ===
-                        'kg'
-                          ? 'border-brand-600 bg-brand-50 text-brand-700'
-                          : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-                      }`}
-                    >
+                <div className="min-w-0">
+                  <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-2">Price By</label>
+                  <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                    <button type="button" onClick={() => setEditingItem({ ...editingItem, price_unit: 'kg', })} className={`px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${editingItem.price_unit === 'kg' ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 active:bg-gray-50'}`}>
                       Price Per Kg
                     </button>
-
-                    {/* PER PIECE */}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setEditingItem({
-                          ...editingItem,
-                          price_unit:
-                            'piece',
-                        })
-                      }
-                      className={`px-4 py-3 rounded-xl border-2 font-bold transition ${
-                        editingItem.price_unit ===
-                        'piece'
-                          ? 'border-brand-600 bg-brand-50 text-brand-700'
-                          : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-                      }`}
-                    >
+                    <button type="button" onClick={() => setEditingItem({ ...editingItem, price_unit: 'piece', })} className={`px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${editingItem.price_unit === 'piece' ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 active:bg-gray-50'}`}>
                       Price Per Piece
                     </button>
-
                   </div>
+                </div>
 
+                {/* NUTRITION FIELDS - Grouped section */}
+                <div className="rounded-2xl bg-gray-50/70 border border-gray-100 p-3 sm:p-4 space-y-3 sm:space-y-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-4 bg-brand-600 rounded-full shrink-0" />
+                    <h3 className="text-sm font-bold text-gray-900">Nutrition Information</h3>
+                    <span className="text-xs text-gray-500 ml-auto hidden sm:inline">per serving</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                    <div className="min-w-0">
+                      <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-1.5">Calories (kcal)</label>
+                      <input type="number" min="0" step="0.1" value={editingItem.calories ?? 0} onChange={(e) => setEditingItem({ ...editingItem, calories: parseFloat(e.target.value) || 0, })} className="w-full min-w-0 px-3 sm:px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent" />
+                    </div>
+                    <div className="min-w-0">
+                      <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-1.5">Protein (g)</label>
+                      <input type="number" min="0" step="0.1" value={editingItem.protein_g ?? 0} onChange={(e) => setEditingItem({ ...editingItem, protein_g: parseFloat(e.target.value) || 0, })} placeholder="e.g., 15" className="w-full min-w-0 px-3 sm:px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-gray-400" />
+                    </div>
+                    <div className="min-w-0">
+                      <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-1.5">Carbs (g)</label>
+                      <input type="number" min="0" step="0.1" value={editingItem.carbs_g ?? 0} onChange={(e) => setEditingItem({ ...editingItem, carbs_g: parseFloat(e.target.value) || 0, })} placeholder="e.g., 20" className="w-full min-w-0 px-3 sm:px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-gray-400" />
+                    </div>
+                    <div className="min-w-0">
+                      <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-1.5">Fat (g)</label>
+                      <input type="number" min="0" step="0.1" value={editingItem.fat_g ?? 0} onChange={(e) => setEditingItem({ ...editingItem, fat_g: parseFloat(e.target.value) || 0, })} placeholder="e.g., 5" className="w-full min-w-0 px-3 sm:px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-gray-400" />
+                    </div>
+                    <div className="min-w-0 sm:col-span-2">
+                      <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-1.5">Fiber (g)</label>
+                      <input type="number" min="0" step="0.1" value={editingItem.fiber_g ?? 0} onChange={(e) => setEditingItem({ ...editingItem, fiber_g: parseFloat(e.target.value) || 0, })} placeholder="e.g., 3" className="w-full min-w-0 px-3 sm:px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-gray-400" />
+                    </div>
+                  </div>
                 </div>
 
                 {/* STOCK STATUS */}
                 <div>
 
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                  <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-2">
                     Stock Status
                   </label>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-2 sm:gap-3">
 
                     {/* IN STOCK */}
                     <button
@@ -1157,14 +879,10 @@ export default function AdminMenuPage() {
                             true,
                         })
                       }
-                      className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 font-bold transition ${
-                        editingItem.is_available
-                          ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                          : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-                      }`}
+                      className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${editingItem.is_available ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 active:bg-gray-50'}`}
                     >
-                      <Eye className="w-4 h-4" />
-                      In Stock
+                      <Eye className="w-4 h-4 shrink-0" />
+                      <span className="truncate">In Stock</span>
                     </button>
 
                     {/* OUT OF STOCK */}
@@ -1177,52 +895,25 @@ export default function AdminMenuPage() {
                             false,
                         })
                       }
-                      className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 font-bold transition ${
-                        !editingItem.is_available
-                          ? 'border-red-500 bg-red-50 text-red-700'
-                          : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-                      }`}
+                      className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${!editingItem.is_available ? 'border-red-500 bg-red-50 text-red-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 active:bg-gray-50'}`}
                     >
-                      <EyeOff className="w-4 h-4" />
-                      Out of Stock
+                      <EyeOff className="w-4 h-4 shrink-0" />
+                      <span className="truncate">Out of Stock</span>
                     </button>
 
                   </div>
 
                 </div>
 
-                {/* ACTION BUTTONS */}
-                <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+                {/* ACTION BUTTONS - stack on mobile */}
+                <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 pt-4 border-t border-gray-100">
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowEditModal(
-                        false
-                      );
-
-                      setEditingItem(
-                        null
-                      );
-                    }}
-                    className="px-5 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200"
-                  >
+                  <button type="button" onClick={() => { setShowEditModal(false); setEditingItem(null); }} className="w-full sm:w-auto px-5 py-3.5 sm:py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 active:bg-gray-200 transition text-sm min-h-[44px]">
                     Cancel
                   </button>
-
-                  <button
-                    type="submit"
-                    disabled={
-                      savingEdit
-                    }
-                    className="px-6 py-3 bg-brand-600 text-white rounded-xl font-bold hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                  >
-                    <Save className="w-4 h-4" />
-
-                    {savingEdit
-                      ? 'Saving...'
-                      : 'Save Changes'}
-
+                  <button type="submit" disabled={savingEdit} className="w-full sm:w-auto px-6 py-3.5 sm:py-3 bg-brand-600 text-white rounded-xl font-bold hover:bg-brand-700 active:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm min-h-[44px] shadow-sm transition">
+                    <Save className="w-4 h-4 shrink-0" />
+                    {savingEdit ? 'Saving...' : 'Save Changes'}
                   </button>
 
                 </div>
@@ -1240,27 +931,15 @@ export default function AdminMenuPage() {
       {/* ================================================ */}
 
       {showAddModal && (
-
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-
-          <div className="bg-white w-full max-w-lg p-6 rounded-3xl shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-lg rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 space-y-4 sm:space-y-6 max-h-[92vh] sm:max-h-[90vh] overflow-y-auto overscroll-contain my-auto">
 
             {/* HEADER */}
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-
-              <h2 className="text-xl font-bold text-gray-900">
-                Add New Food Item
-              </h2>
-
-              <button
-                onClick={() =>
-                  setShowAddModal(false)
-                }
-                className="p-1 text-gray-400 hover:text-gray-600"
-              >
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3 sticky top-0 bg-white z-10 -mx-4 sm:-mx-6 px-4 sm:px-6 -mt-4 sm:-mt-6 pt-4 sm:pt-6">
+              <h2 className="text-lg sm:text-xl font-bold text-gray-900 leading-tight">Add New Food Item</h2>
+              <button onClick={() => setShowAddModal(false)} className="shrink-0 p-2.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition min-w-[44px] min-h-[44px] flex items-center justify-center" aria-label="Close">
                 <X className="w-5 h-5" />
               </button>
-
             </div>
 
             {/* FORM */}
@@ -1272,320 +951,110 @@ export default function AdminMenuPage() {
             >
 
               {/* NAME */}
-              <div>
-
-                <label className="block font-bold text-gray-700 mb-1">
-                  Item Name
-                </label>
-
-                <input
-                  type="text"
-                  required
-                  value={
-                    newItem.name
-                  }
-                  onChange={(e) =>
-                    setNewItem({
-                      ...newItem,
-                      name: e.target
-                        .value,
-                    })
-                  }
-                  placeholder="e.g., Chicken Breast"
-                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl"
-                />
-
+              <div className="min-w-0">
+                <label className="block font-bold text-gray-700 mb-1 text-xs sm:text-sm">Item Name</label>
+                <input type="text" required value={newItem.name} onChange={(e) => setNewItem({ ...newItem, name: e.target.value, })} placeholder="e.g., Chicken Breast" className="w-full min-w-0 px-3 py-3 sm:py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
-
               {/* DESCRIPTION */}
-              <div>
-
-                <label className="block font-bold text-gray-700 mb-1">
-                  Description
-                </label>
-
-                <input
-                  type="text"
-                  value={
-                    newItem.description
-                  }
-                  onChange={(e) =>
-                    setNewItem({
-                      ...newItem,
-                      description:
-                        e.target.value,
-                    })
-                  }
-                  placeholder="Short summary of food dish"
-                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl"
-                />
-
+              <div className="min-w-0">
+                <label className="block font-bold text-gray-700 mb-1 text-xs sm:text-sm">Description</label>
+                <input type="text" value={newItem.description} onChange={(e) => setNewItem({ ...newItem, description: e.target.value, })} placeholder="Short summary of food dish" className="w-full min-w-0 px-3 py-3 sm:py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
 
               {/* CATEGORY & DIET */}
-              <div className="grid grid-cols-2 gap-4">
-
-                <div>
-
-                  <label className="block font-bold text-gray-700 mb-1">
-                    Category
-                  </label>
-
-                  <select
-                    value={
-                      newItem.category
-                    }
-                    onChange={(e) =>
-                      setNewItem({
-                        ...newItem,
-                        category:
-                          e.target.value,
-                      })
-                    }
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl"
-                  >
-                    <option value="main">
-                      Main Dish
-                    </option>
-
-                    <option value="side">
-                      Side Dish
-                    </option>
-
-                    <option value="combo">
-                      Combo
-                    </option>
-
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                <div className="min-w-0">
+                  <label className="block font-bold text-gray-700 mb-1 text-xs sm:text-sm">Category</label>
+                  <select value={newItem.category} onChange={(e) => setNewItem({ ...newItem, category: e.target.value, })} className="w-full min-w-0 px-3 py-3 sm:py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="main">Main Dish</option>
+                    <option value="side">Side Dish</option>
+                    <option value="combo">Combo</option>
                   </select>
-
                 </div>
-
-                <div>
-
-                  <label className="block font-bold text-gray-700 mb-1">
-                    Food Type
-                  </label>
-
-                  <select
-                    value={
-                      newItem.diet
-                    }
-                    onChange={(e) =>
-                      setNewItem({
-                        ...newItem,
-                        diet: e.target
-                          .value as
-                          | 'veg'
-                          | 'non_veg',
-                      })
-                    }
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl"
-                  >
-                    <option value="veg">
-                      🟢 Veg
-                    </option>
-
-                    <option value="non_veg">
-                      🔴 Non-Veg
-                    </option>
-
+                <div className="min-w-0">
+                  <label className="block font-bold text-gray-700 mb-1 text-xs sm:text-sm">Food Type</label>
+                  <select value={newItem.diet} onChange={(e) => setNewItem({ ...newItem, diet: e.target.value as DietType, })} className="w-full min-w-0 px-3 py-3 sm:py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="veg">🟢 Veg</option>
+                    <option value="egg">🥚 Egg</option>
+                    <option value="non_veg">🔴 Non-Veg</option>
                   </select>
-
                 </div>
-
               </div>
 
               {/* PRICE & PRICE UNIT */}
-              <div className="grid grid-cols-2 gap-4">
-
-                <div>
-
-                  <label className="block font-bold text-gray-700 mb-1">
-                    Price (₹)
-                  </label>
-
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    required
-                    value={
-                      newItem.price
-                    }
-                    onChange={(e) =>
-                      setNewItem({
-                        ...newItem,
-                        price: parseFloat(
-                          e.target.value
-                        ),
-                      })
-                    }
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl"
-                  />
-
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                <div className="min-w-0">
+                  <label className="block font-bold text-gray-700 mb-1 text-xs sm:text-sm">Price (₹)</label>
+                  <input type="number" min="0" step="0.5" required value={newItem.price} onChange={(e) => setNewItem({ ...newItem, price: parseFloat(e.target.value) || 0, })} className="w-full min-w-0 px-3 py-3 sm:py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 </div>
-
-                <div>
-
-                  <label className="block font-bold text-gray-700 mb-1">
-                    Price By
-                  </label>
-
-                  <select
-                    value={
-                      newItem.price_unit
-                    }
-                    onChange={(e) =>
-                      setNewItem({
-                        ...newItem,
-                        price_unit:
-                          e.target.value as PriceUnit,
-                      })
-                    }
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl"
-                  >
-
-                    <option value="piece">
-                      Per Piece
-                    </option>
-
-                    <option value="kg">
-                      Per Kg
-                    </option>
-
+                <div className="min-w-0">
+                  <label className="block font-bold text-gray-700 mb-1 text-xs sm:text-sm">Price By</label>
+                  <select value={newItem.price_unit} onChange={(e) => setNewItem({ ...newItem, price_unit: e.target.value as PriceUnit, })} className="w-full min-w-0 px-3 py-3 sm:py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="piece">Per Piece</option>
+                    <option value="kg">Per Kg</option>
                   </select>
-
                 </div>
-
               </div>
 
               {/* CALORIES */}
-              <div>
+              <div className="min-w-0">
+                <label className="block font-bold text-gray-700 mb-1 text-xs sm:text-sm">Calories (kcal)</label>
+                <input type="number" required value={newItem.calories} onChange={(e) => setNewItem({ ...newItem, calories: parseFloat(e.target.value) || 0, })} className="w-full min-w-0 px-3 py-3 sm:py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
 
-                <label className="block font-bold text-gray-700 mb-1">
-                  Calories (kcal)
-                </label>
-
-                <input
-                  type="number"
-                  required
-                  value={
-                    newItem.calories
-                  }
-                  onChange={(e) =>
-                    setNewItem({
-                      ...newItem,
-                      calories:
-                        parseFloat(
-                          e.target.value
-                        ),
-                    })
-                  }
-                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl"
-                />
-
+              {/* NUTRITION - Fiber, Fat, Carbs, Protein - grouped, responsive */}
+              <div className="rounded-xl bg-gray-50/70 border border-gray-100 p-3 sm:p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-1 h-4 bg-brand-600 rounded-full shrink-0" />
+                  <h3 className="text-sm font-bold text-gray-900">Nutrition Information</h3>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                <div className="min-w-0">
+                  <label className="block font-bold text-gray-700 mb-1 text-xs sm:text-sm">Protein (g)</label>
+                  <input type="number" min="0" step="0.1" required value={newItem.protein_g} onChange={(e) => setNewItem({ ...newItem, protein_g: parseFloat(e.target.value) || 0, })} placeholder="e.g., 15" className="w-full min-w-0 px-3 py-3 sm:py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+                <div className="min-w-0">
+                  <label className="block font-bold text-gray-700 mb-1 text-xs sm:text-sm">Carbs (g)</label>
+                  <input type="number" min="0" step="0.1" required value={newItem.carbs_g} onChange={(e) => setNewItem({ ...newItem, carbs_g: parseFloat(e.target.value) || 0, })} placeholder="e.g., 20" className="w-full min-w-0 px-3 py-3 sm:py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+                <div className="min-w-0">
+                  <label className="block font-bold text-gray-700 mb-1 text-xs sm:text-sm">Fat (g)</label>
+                  <input type="number" min="0" step="0.1" required value={newItem.fat_g} onChange={(e) => setNewItem({ ...newItem, fat_g: parseFloat(e.target.value) || 0, })} placeholder="e.g., 5" className="w-full min-w-0 px-3 py-3 sm:py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+                <div className="min-w-0">
+                  <label className="block font-bold text-gray-700 mb-1 text-xs sm:text-sm">Fiber (g)</label>
+                  <input type="number" min="0" step="0.1" required value={newItem.fiber_g} onChange={(e) => setNewItem({ ...newItem, fiber_g: parseFloat(e.target.value) || 0, })} placeholder="e.g., 3" className="w-full min-w-0 px-3 py-3 sm:py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+              </div>
               </div>
 
               {/* STOCK */}
               <div>
-
-                <label className="block font-bold text-gray-700 mb-2">
-                  Stock Status
-                </label>
-
-                <div className="grid grid-cols-2 gap-3">
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setNewItem({
-                        ...newItem,
-                        is_available:
-                          true,
-                      })
-                    }
-                    className={`px-4 py-2 rounded-xl border-2 font-bold ${
-                      newItem.is_available
-                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                        : 'border-gray-200'
-                    }`}
-                  >
+                <label className="block font-bold text-gray-700 mb-2 text-xs sm:text-sm">Stock Status</label>
+                <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                  <button type="button" onClick={() => setNewItem({ ...newItem, is_available: true, })} className={`px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${newItem.is_available ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}>
                     In Stock
                   </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setNewItem({
-                        ...newItem,
-                        is_available:
-                          false,
-                      })
-                    }
-                    className={`px-4 py-2 rounded-xl border-2 font-bold ${
-                      !newItem.is_available
-                        ? 'border-red-500 bg-red-50 text-red-700'
-                        : 'border-gray-200'
-                    }`}
-                  >
+                  <button type="button" onClick={() => setNewItem({ ...newItem, is_available: false, })} className={`px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${!newItem.is_available ? 'border-red-500 bg-red-50 text-red-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}>
                     Out of Stock
                   </button>
-
                 </div>
-
               </div>
 
               {/* COOKABLE */}
-              <div className="flex items-center space-x-3 pt-2">
-
-                <input
-                  type="checkbox"
-                  id="cookableCheck"
-                  checked={
-                    newItem.cookable
-                  }
-                  onChange={(e) =>
-                    setNewItem({
-                      ...newItem,
-                      cookable:
-                        e.target.checked,
-                    })
-                  }
-                  className="w-4 h-4 text-brand-600 rounded"
-                />
-
-                <label
-                  htmlFor="cookableCheck"
-                  className="font-bold text-gray-700"
-                >
-                  Requires Cooking
-                  (+Rs.5 Surcharge)
-                </label>
-
+              <div className="flex items-center gap-3 pt-2">
+                <input type="checkbox" id="cookableCheck" checked={newItem.cookable} onChange={(e) => setNewItem({ ...newItem, cookable: e.target.checked, })} className="w-4 h-4 text-brand-600 rounded shrink-0" />
+                <label htmlFor="cookableCheck" className="font-bold text-gray-700 text-xs sm:text-sm leading-tight">Requires Cooking (+Rs.5 Surcharge)</label>
               </div>
 
-              {/* BUTTONS */}
-              <div className="flex justify-end space-x-3 pt-4">
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShowAddModal(
-                      false
-                    )
-                  }
-                  className="px-4 py-2 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200"
-                >
+              {/* BUTTONS - stack on mobile */}
+              <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 pt-4 border-t border-gray-100">
+                <button type="button" onClick={() => setShowAddModal(false)} className="w-full sm:w-auto px-4 py-3.5 sm:py-2 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 text-sm min-h-[44px] transition">
                   Cancel
                 </button>
-
-                <button
-                  type="submit"
-                  className="px-6 py-2 bg-brand-600 text-white rounded-xl font-bold hover:bg-brand-700 shadow"
-                >
+                <button type="submit" className="w-full sm:w-auto px-6 py-3.5 sm:py-2 bg-brand-600 text-white rounded-xl font-bold hover:bg-brand-700 shadow text-sm min-h-[44px] transition">
                   Save Food Item
                 </button>
-
               </div>
 
             </form>

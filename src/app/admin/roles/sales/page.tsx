@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Phone, User, Search, X, Save, CheckCircle2, Activity, FileText, ThumbsDown, MessageCircle, IndianRupee, Bell, DollarSign, Trash2
+  Phone, User, Search, X, Save, CheckCircle2, Activity, FileText, ThumbsDown, MessageCircle, IndianRupee, Bell, DollarSign, Trash2,
+  CalendarDays, Clock, Coffee, Sun, Loader2, RotateCcw, Ban, SkipForward, XCircle, RefreshCw, Repeat, Download
 } from 'lucide-react';
 import { foodLabel } from '@/lib/foodDisplay';
 import { normalizeMealPlan, planTotals } from '@/lib/mealPlan';
+import { calculateItemNutrition } from '@/lib/nutrition/calculations';
 
 function getPackages(c: any): Array<{ name: string; days?: number; price: number }> {
   const p = c?.meal_plan_packages;
@@ -52,6 +54,27 @@ function todayAtMidnight(): Date {
   return t;
 }
 
+const MEAL_SLOTS = ['Morning', 'Afternoon', 'Evening', 'Night'];
+const DELIVERY_STYLES: Record<string, string> = {
+  scheduled: 'bg-gray-100 text-gray-700 border-gray-200',
+  preparing: 'bg-amber-50 text-amber-700 border-amber-200',
+  out_for_delivery: 'bg-blue-50 text-blue-700 border-blue-200',
+  delivered: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  not_delivered: 'bg-red-50 text-red-700 border-red-200',
+  skipped: 'bg-purple-50 text-purple-700 border-purple-200',
+  rescheduled: 'bg-orange-50 text-orange-700 border-orange-200',
+};
+const DELIVERY_ICONS: Record<string, any> = {
+  scheduled: Clock, preparing: Clock, out_for_delivery: Clock,
+  delivered: CheckCircle2, not_delivered: XCircle, skipped: Ban, rescheduled: RotateCcw,
+};
+const DAY_STYLES: Record<string, string> = {
+  delivered: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+  skipped: 'bg-purple-100 text-purple-800 border-purple-300',
+  ongoing: 'bg-blue-100 text-blue-800 border-blue-300',
+  partial: 'bg-amber-100 text-amber-800 border-amber-300',
+};
+
 
 
 export default function SalesDashboardPage() {
@@ -64,11 +87,29 @@ export default function SalesDashboardPage() {
   const [saving, setSaving] = useState(false);
   const [editingEnquiryId, setEditingEnquiryId] = useState<string | null>(null);
   const [menuItems, setMenuItems] = useState<any[]>([]);
+  const [subscriptions, setSubscriptions] = useState<any[]>([]);
+  const [deliveries, setDeliveries] = useState<any[]>([]);
+  const [enquiriesList, setEnquiriesList] = useState<any[]>([]);
   const [recordPay, setRecordPay] = useState({ amount: 0, method: 'cash', date: '', note: '' });
   const [recording, setRecording] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<any | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deliverySubTab, setDeliverySubTab] = useState<'delivery' | 'subscription'>('delivery');
+  const [editingDailyPlan, setEditingDailyPlan] = useState<{ day: number; meal: string } | null>(null);
+  const [perDayOverrides, setPerDayOverrides] = useState<Record<number, any>>({});
+  const [showRenewModal, setShowRenewModal] = useState(false);
+  const [renewDays, setRenewDays] = useState<number>(7);
+  const [renewAuto, setRenewAuto] = useState<boolean>(false);
+  const [renewSaving, setRenewSaving] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; error?: boolean } | null>(null);
+  const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
+  const [addCustomerForm, setAddCustomerForm] = useState({
+    name: '', phone: '', email: '', address: '',
+    age: 25, gender: 'male', height: 170, weight: 70,
+    food: 'veg', activity: 'sedentary', goal: 'maintenance', freq: 1,
+  });
+  const [addingCustomer, setAddingCustomer] = useState(false);
 
   const showToast = (message: string, error = false) => {
     setToast({ message, error });
@@ -87,9 +128,11 @@ export default function SalesDashboardPage() {
   const fetchData = async () => {
     setCustomersLoading(true);
     try {
-      const [cRes, eRes] = await Promise.all([
+      const [cRes, eRes, sRes, dRes] = await Promise.all([
         fetch('/api/customers', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/roles/sales/enquiries', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/admin/subscriptions', { headers: { Authorization: `Bearer ${token}` } }).catch(() => null as any),
+        fetch('/api/admin/deliveries', { headers: { Authorization: `Bearer ${token}` } }).catch(() => null as any),
       ]);
       if (cRes.ok) setCustomers(await cRes.json());
       if (eRes.ok) {
@@ -97,6 +140,15 @@ export default function SalesDashboardPage() {
         const map: Record<string, any> = {};
         enquiries.forEach(e => { map[e.phone] = e; });
         setCustomerEnquiries(map);
+        setEnquiriesList(enquiries);
+      }
+      if (sRes && sRes.ok) {
+        const subs = await sRes.json();
+        setSubscriptions(Array.isArray(subs) ? subs : []);
+      }
+      if (dRes && dRes.ok) {
+        const dels = await dRes.json();
+        setDeliveries(Array.isArray(dels) ? dels : []);
       }
     } catch {}
     setCustomersLoading(false);
@@ -164,6 +216,99 @@ export default function SalesDashboardPage() {
     return Math.round(p.price * 100) / 100;
   }, [editForm.meal_plan, menuItems]);
 
+  const availableFoods = useMemo(() => menuItems.filter((i: any) => i.is_available), [menuItems]);
+
+  const selectedSubscription = useMemo(() => {
+    if (!selectedCustomer) return null;
+    const mapped: any = customerEnquiries[selectedCustomer.phone];
+    if (mapped?.subscription) return mapped.subscription;
+    const candidates = enquiriesList.filter((e: any) => e.phone === selectedCustomer.phone);
+    for (const enq of candidates) {
+      if ((enq as any).subscription) return (enq as any).subscription;
+      const sub = subscriptions.find((s: any) => s.customer_enquiry_id === enq.id);
+      if (sub) return sub;
+    }
+    if (mapped) {
+      return subscriptions.find((s: any) => s.customer_enquiry_id === mapped.id) || null;
+    }
+    return null;
+  }, [selectedCustomer, customerEnquiries, subscriptions, enquiriesList]);
+
+  const selectedDeliveries = useMemo(() => {
+    if (!selectedSubscription) return [];
+    if (Array.isArray((selectedSubscription as any).deliveries) && (selectedSubscription as any).deliveries.length > 0) {
+      return [...(selectedSubscription as any).deliveries].sort((a: any, b: any) => a.day_number - b.day_number || String(a.meal_slot).localeCompare(String(b.meal_slot)));
+    }
+    return deliveries
+      .filter((d: any) => d.subscription_id === selectedSubscription.id)
+      .sort((a: any, b: any) => a.day_number - b.day_number || String(a.meal_slot).localeCompare(String(b.meal_slot)));
+  }, [selectedSubscription, deliveries]);
+
+  const dailyMealPlan = useMemo(() => {
+    // Per-day stored shape: [{day, date, meals}, ...] length 7 — use directly (with overrides)
+    if (Array.isArray(editForm.meal_plan) && editForm.meal_plan.length > 0 && (editForm.meal_plan[0] as any)?.day && Array.isArray((editForm.meal_plan[0] as any)?.meals)) {
+      const perDay = (editForm.meal_plan as any[]).slice(0, 7).map((d: any) => ({
+        day: d.day,
+        date: d.date || '-',
+        meals: (perDayOverrides[d.day] as any) || d.meals,
+      }));
+      // If overrides for days not in stored plan, merge
+      Object.keys(perDayOverrides).forEach(k => {
+        const dayNum = Number(k);
+        if (!perDay.some(d => d.day === dayNum)) {
+          perDay.push({ day: dayNum, date: '-', meals: perDayOverrides[dayNum] });
+        }
+      });
+      return perDay.sort((a: any, b: any) => a.day - b.day);
+    }
+    const p = normalizeMealPlan(editForm.meal_plan);
+    if (!p || !p.meals.length) return [];
+    const baseMeals = p.meals;
+    if (selectedSubscription && selectedDeliveries.length > 0) {
+      const byDay: Record<number, any[]> = {};
+      selectedDeliveries.forEach((d: any) => {
+        (byDay[d.day_number] ||= []).push(d);
+      });
+      return Object.entries(byDay)
+        .sort(([a], [b]) => Number(a) - Number(b))
+        .slice(0, 7)
+        .map(([day, dels]) => ({
+          day: Number(day),
+          date: (dels as any[])[0]?.scheduled_date || '-',
+          meals: (perDayOverrides[Number(day)] as any) || baseMeals,
+        }));
+    }
+    const duration = selectedSubscription?.duration_days || editForm.meals_per_day || 3;
+    const daysToShow = Math.min(duration, 7);
+    return Array.from({ length: daysToShow }, (_, i) => ({
+      day: i + 1,
+      date: selectedSubscription ? new Date(new Date(selectedSubscription.start_date).getTime() + i * 86400000).toISOString().split('T')[0] : '-',
+      meals: (perDayOverrides[i + 1] as any) || baseMeals,
+    }));
+  }, [editForm.meal_plan, selectedSubscription, selectedDeliveries, perDayOverrides]);
+
+  const groupedDeliveriesForTab = useMemo(() => {
+    const grouped: Record<number, typeof selectedDeliveries> = {};
+    for (const d of selectedDeliveries) {
+      if (!grouped[d.day_number]) grouped[d.day_number] = [] as any;
+      (grouped[d.day_number] as any).push(d);
+    }
+    return grouped;
+  }, [selectedDeliveries]);
+
+  const dayStatusForTab = useMemo(() => {
+    const map: Record<number, string> = {};
+    const ongoingStatuses = ['scheduled', 'preparing', 'out_for_delivery'];
+    for (const [day, dels] of Object.entries(groupedDeliveriesForTab)) {
+      const statuses = (dels as any[]).map((d: any) => d.status);
+      if (statuses.every((s: string) => s === 'delivered')) map[Number(day)] = 'delivered';
+      else if (statuses.every((s: string) => s === 'skipped')) map[Number(day)] = 'skipped';
+      else if (statuses.some((s: string) => ongoingStatuses.includes(s))) map[Number(day)] = 'ongoing';
+      else map[Number(day)] = 'partial';
+    }
+    return map;
+  }, [groupedDeliveriesForTab]);
+
   const openEditModal = (c: any) => {
     const existing = customerEnquiries[c.phone];
     if (existing) {
@@ -226,6 +371,9 @@ export default function SalesDashboardPage() {
       });
     }
     setRecordPay({ amount: 0, method: 'cash', date: '', note: '' });
+    setPerDayOverrides({});
+    setEditingDailyPlan(null);
+    setDeliverySubTab('delivery');
     setSelectedCustomer(c);
     setEditModal(true);
   };
@@ -235,11 +383,20 @@ export default function SalesDashboardPage() {
     if (!selectedCustomer) return;
     setSaving(true);
     try {
+      let payloadMealPlan: any = editForm.meal_plan;
+      if (Object.keys(perDayOverrides).length > 0 && dailyMealPlan.length === 7) {
+        const perDayArray = dailyMealPlan.map((day: any) => {
+          const override = perDayOverrides[day.day];
+          if (override) return { ...day, meals: override };
+          return day;
+        });
+        payloadMealPlan = perDayArray;
+      }
       if (editingEnquiryId) {
         const r = await fetch('/api/roles/sales/enquiries', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ id: editingEnquiryId, ...editForm, sales_status: 'follow_up' }),
+          body: JSON.stringify({ id: editingEnquiryId, ...editForm, meal_plan: payloadMealPlan, sales_status: 'follow_up' }),
         });
         if (r.ok) {
           const updated = await r.json();
@@ -247,22 +404,167 @@ export default function SalesDashboardPage() {
           setEditModal(false);
           setSelectedCustomer(null);
           setEditingEnquiryId(null);
+          setPerDayOverrides({});
         }
       } else {
         const r = await fetch('/api/roles/sales/enquiries', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify(editForm),
+          body: JSON.stringify({ ...editForm, meal_plan: payloadMealPlan }),
         });
         if (r.ok) {
           const created = await r.json();
           setCustomerEnquiries(prev => ({ ...prev, [selectedCustomer.phone]: created }));
           setEditModal(false);
           setSelectedCustomer(null);
+          setPerDayOverrides({});
         }
       }
     } catch {}
     setSaving(false);
+  };
+
+  const handleAddCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!addCustomerForm.name.trim() || !addCustomerForm.phone.trim()) {
+      showToast('Name and phone are required', true);
+      return;
+    }
+    const cleanPhone = addCustomerForm.phone.replace(/\D/g, '').slice(-10);
+    if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
+      showToast('Valid 10-digit phone required', true);
+      return;
+    }
+    if (customers.some((c: any) => String(c.phone).replace(/\D/g, '').slice(-10) === cleanPhone) || customerEnquiries[cleanPhone]) {
+      showToast('Customer with this phone already exists', true);
+      return;
+    }
+    setAddingCustomer(true);
+    try {
+      const res = await fetch('/api/customers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          name: addCustomerForm.name.trim(),
+          phone: cleanPhone,
+          email: addCustomerForm.email.trim() || null,
+          address: addCustomerForm.address.trim() || null,
+          goal: addCustomerForm.goal,
+          age: addCustomerForm.age,
+          gender: addCustomerForm.gender,
+          height: addCustomerForm.height,
+          weight: addCustomerForm.weight,
+          food: addCustomerForm.food,
+          activity: addCustomerForm.activity,
+          freq: addCustomerForm.freq,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.message || 'Failed to create customer');
+      }
+      const created = await res.json();
+      const cust = (created && (created as any).customer) ? (created as any).customer : created;
+      setCustomers((prev) => [cust, ...prev]);
+      setShowAddCustomerModal(false);
+      setAddCustomerForm({
+        name: '', phone: '', email: '', address: '',
+        age: 25, gender: 'male', height: 170, weight: 70,
+        food: 'veg', activity: 'sedentary', goal: 'maintenance', freq: 1,
+      });
+      showToast(`Customer ${cust.name || addCustomerForm.name} added successfully`);
+      fetchData();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to add customer', true);
+    }
+    setAddingCustomer(false);
+  };
+
+  function getRenewPeriodSales(sub: any) {
+    if (!sub) return { currentStart: '-', currentEnd: '-', newStart: '-', newEnd: '-' };
+    const end = (sub as any).actual_end_date || (() => {
+      const s = new Date(sub.start_date + 'T00:00:00');
+      const totalSkipped = Array.isArray(sub.skipped_meals) ? sub.skipped_meals.length : 0;
+      const e = new Date(s);
+      e.setDate(e.getDate() + (sub.duration_days - 1) + (sub.paused_days || 0) + totalSkipped);
+      return e.toISOString().split('T')[0];
+    })();
+    const oldEnd = new Date(end + 'T00:00:00');
+    const newStart = new Date(oldEnd);
+    newStart.setDate(newStart.getDate() + 1);
+    const newEnd = new Date(newStart);
+    newEnd.setDate(newEnd.getDate() + renewDays - 1);
+    return {
+      currentStart: sub.start_date,
+      currentEnd: end,
+      newStart: newStart.toISOString().split('T')[0],
+      newEnd: newEnd.toISOString().split('T')[0],
+    };
+  }
+
+  async function handleRenewSales() {
+    if (!selectedSubscription) return;
+    if (!renewDays || renewDays < 1 || renewDays > 90) { showToast('Select 1-90 days', true); return; }
+    setRenewSaving(true);
+    try {
+      const res = await fetch('/api/admin/subscriptions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ id: selectedSubscription.id, action: 'renew', renewal_days: renewDays, auto_renew: renewAuto }),
+      });
+      if (!res.ok) { const j = await res.json().catch(()=>({})); showToast(j.message||'Renew failed', true); return; }
+      const updated = await res.json();
+      const clean = updated._renew ? (()=>{ const { _renew, ...rest}=updated; return rest; })() : updated;
+      setSubscriptions(prev => prev.map(s=> s.id===selectedSubscription.id ? clean : s));
+      // refresh deliveries
+      fetchData();
+      setShowRenewModal(false);
+      showToast(`Renewed for ${renewDays} days${renewAuto ? ' · Auto-renew ON' : ''}`);
+    } catch(e){ console.error(e); showToast('Renew error', true); }
+    setRenewSaving(false);
+  }
+
+  const handleDownloadPdf = async (customer: any) => {
+    const enquiry = customerEnquiries[customer.phone] || enquiriesList.find((e:any)=> e.phone===customer.phone) || null;
+    const sub = (() => {
+      if (!enquiry) return null;
+      return subscriptions.find((s:any)=> s.customer_enquiry_id===enquiry.id) || null;
+    })();
+    if (!enquiry && !customer) {
+      showToast('No customer data found for PDF', true);
+      return;
+    }
+    const key = customer.phone || customer.id;
+    setDownloadingPdf(key);
+    try {
+      const { pdf } = await import('@react-pdf/renderer');
+      const { default: CustomerPdf } = await import('@/components/pdf/CustomerPdf');
+      const React = await import('react');
+      const doc = React.createElement(CustomerPdf, {
+        customer,
+        enquiry,
+        subscription: sub,
+      });
+      const blob = await pdf(doc as any).toBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `FuelBox_${(enquiry?.customer_name || customer.name || 'Customer').replace(/\s+/g,'_')}_${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast('PDF downloaded');
+    } catch (err:any) {
+      console.error('[PDF] failed', err);
+      showToast('Failed to generate PDF', true);
+    }
+    setDownloadingPdf(null);
+  };
+
+  const handleDownloadPdfForEnquiry = async (enquiry: any) => {
+    const cust = customers.find((c:any)=> c.phone===enquiry.phone) || { name: enquiry.customer_name, phone: enquiry.phone, email: enquiry.email };
+    await handleDownloadPdf(cust);
   };
 
   const paymentReminders = useMemo(() => {
@@ -367,12 +669,18 @@ export default function SalesDashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
+        <div className="min-w-0 flex-1">
           <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight">
             Sales Dashboard
           </h1>
-          <p className="text-gray-500 text-sm mt-1">Manage customers and submit details for verification.</p>
+          <p className="text-gray-500 text-sm mt-1">Manage customers and submit details for verification. Onboarding customers appear automatically; you can also add manually.</p>
         </div>
+        <button
+          onClick={() => setShowAddCustomerModal(true)}
+          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition text-sm shadow-sm shrink-0 min-h-[44px] w-full sm:w-auto"
+        >
+          <User className="w-4 h-4" /> Add Customer
+        </button>
       </div>
 
       {/* Payment Follow-up Reminders */}
@@ -576,6 +884,10 @@ export default function SalesDashboardPage() {
                           className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-bold hover:bg-blue-100 transition">
                           <FileText className="w-3 h-3" /> Follow Up
                         </button>
+                        <button onClick={() => handleDownloadPdf(c)} disabled={downloadingPdf===c.phone}
+                          className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition disabled:opacity-50" title="Download PDF">
+                          {downloadingPdf===c.phone ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                        </button>
                         <button onClick={() => quickAction(c, 'non_follow_up')}
                           className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg transition" title="Non-Follow Up">
                           <ThumbsDown className="w-4 h-4" />
@@ -591,6 +903,10 @@ export default function SalesDashboardPage() {
                           className="flex items-center gap-1 px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg text-xs font-bold hover:bg-amber-100 transition">
                           <FileText className="w-3 h-3" /> Edit
                         </button>
+                        <button onClick={() => handleDownloadPdf(c)} disabled={downloadingPdf===c.phone}
+                          className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition disabled:opacity-50" title="Download PDF">
+                          {downloadingPdf===c.phone ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                        </button>
                         <button onClick={() => setDeleteConfirm(customerEnquiries[c.phone])}
                           className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition" title="Delete Enquiry">
                           <Trash2 className="w-4 h-4" />
@@ -599,6 +915,10 @@ export default function SalesDashboardPage() {
                     ) : customerEnquiries[c.phone].sales_status === 'non_follow_up' ? (
                       <div className="flex items-center justify-end gap-2">
                         <span className="text-xs text-gray-400 font-semibold">Closed</span>
+                        <button onClick={() => handleDownloadPdf(c)} disabled={downloadingPdf===c.phone}
+                          className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition disabled:opacity-50" title="Download PDF">
+                          {downloadingPdf===c.phone ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                        </button>
                         <button onClick={() => setDeleteConfirm(customerEnquiries[c.phone])}
                           className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition" title="Delete Enquiry">
                           <Trash2 className="w-4 h-4" />
@@ -607,6 +927,10 @@ export default function SalesDashboardPage() {
                     ) : (
                       <div className="flex items-center justify-end gap-2">
                         <span className="text-xs text-red-500 font-semibold">Not Interested</span>
+                        <button onClick={() => handleDownloadPdf(c)} disabled={downloadingPdf===c.phone}
+                          className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition disabled:opacity-50" title="Download PDF">
+                          {downloadingPdf===c.phone ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                        </button>
                         <button onClick={() => setDeleteConfirm(customerEnquiries[c.phone])}
                           className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition" title="Delete Enquiry">
                           <Trash2 className="w-4 h-4" />
@@ -633,9 +957,15 @@ export default function SalesDashboardPage() {
                 <h2 className="text-xl font-bold text-gray-900">Follow Up — {selectedCustomer.name}</h2>
                 <p className="text-sm text-gray-400 mt-0.5">Complete all details for verification</p>
               </div>
-              <button onClick={() => setEditModal(false)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-lg transition">
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => handleDownloadPdf(selectedCustomer)} disabled={downloadingPdf===selectedCustomer.phone}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 transition">
+                  {downloadingPdf===selectedCustomer.phone ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} Download PDF
+                </button>
+                <button onClick={() => setEditModal(false)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-lg transition">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
             <div className="px-6 pt-6 pb-0 space-y-6">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -763,45 +1093,6 @@ export default function SalesDashboardPage() {
                   </div>
                 </div>
               </div>
-
-              {(() => { const p = normalizeMealPlan(editForm.meal_plan); if (!p || p.meals.length === 0) return null; return (
-                <div>
-                  <h3 className="text-sm font-extrabold text-gray-800 uppercase tracking-wider mb-3 flex items-center gap-2">
-                    <Activity className="w-4 h-4 text-blue-600" /> Meal Plan
-                  </h3>
-                  <div className="flex items-center gap-4 mb-3">
-                    <span className="text-xs font-bold text-gray-700 bg-blue-50 px-3 py-1 rounded-lg">{p.kcal || '-'} kcal</span>
-                    <span className="text-xs font-bold text-gray-700 bg-blue-50 px-3 py-1 rounded-lg">{p.protein || '-'}g protein</span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-                    {p.meals.map((meal: any, i: number) => (
-                      <div key={i} className="border border-gray-200 rounded-xl p-3 bg-gray-50">
-                        <p className="text-xs font-bold text-gray-900 mb-2">{meal.name}</p>
-                        {meal.items && Array.isArray(meal.items) && meal.items.map((it: any, j: number) => (
-                          <p key={j} className="text-[11px] text-gray-600">
-                            {foodLabel(it)}
-                          </p>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Daily Calories (kcal)</label>
-                      <input type="number" value={editForm.daily_calories}
-                        onChange={e => setEditForm({ ...editForm, daily_calories: Number(e.target.value) })}
-                        className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Daily Protein (g)</label>
-                      <input type="number" value={editForm.daily_protein}
-                        onChange={e => setEditForm({ ...editForm, daily_protein: Number(e.target.value) })}
-                        className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500" />
-                    </div>
-                  </div>
-                </div>
-              ); })()}
-
               <div className="bg-emerald-50/50 border border-emerald-200 rounded-xl p-4">
                 <h3 className="text-sm font-extrabold text-emerald-800 uppercase tracking-wider mb-1 flex items-center gap-2">
                   <IndianRupee className="w-4 h-4 text-emerald-600" /> Meal Plan Price
@@ -839,6 +1130,47 @@ export default function SalesDashboardPage() {
                 ) : null; })()}
               </div>
 
+              {selectedSubscription && (
+                <div className="bg-indigo-50/50 border border-indigo-200 rounded-xl p-4">
+                  <h3 className="text-sm font-extrabold text-indigo-800 uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <CalendarDays className="w-4 h-4 text-indigo-600" /> Subscription
+                  </h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
+                    <div className="bg-white border border-indigo-100 rounded-xl p-3 text-center">
+                      <p className="text-[10px] font-bold text-indigo-600 uppercase">Current Period</p>
+                      <p className="text-xs font-black text-gray-900 mt-1">{formatDate(selectedSubscription.start_date)} → {formatDate((selectedSubscription as any).actual_end_date || getRenewPeriodSales(selectedSubscription).currentEnd)}</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">{selectedSubscription.duration_days} days · {selectedSubscription.status}</p>
+                    </div>
+                    <div className="bg-white border border-indigo-100 rounded-xl p-3 text-center">
+                      <p className="text-[10px] font-bold text-indigo-600 uppercase">Auto Renew</p>
+                      <p className={`text-xs font-black mt-1 ${(selectedSubscription as any).auto_renew ? 'text-emerald-700' : 'text-gray-500'}`}>{(selectedSubscription as any).auto_renew ? `ON · ${(selectedSubscription as any).auto_renew_days} days` : 'OFF'}</p>
+                      {(selectedSubscription as any).auto_renew && <p className="text-[10px] text-emerald-600 mt-0.5">Auto-extends</p>}
+                    </div>
+                    <div className="bg-white border border-indigo-100 rounded-xl p-3 text-center">
+                      <p className="text-[10px] font-bold text-indigo-600 uppercase">Deliveries</p>
+                      <p className="text-xs font-black text-gray-900 mt-1">{selectedDeliveries.length} records</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">{selectedDeliveries.filter((d:any)=> d.status==='scheduled').length} scheduled</p>
+                    </div>
+                  </div>
+                  {(selectedSubscription as any).renewal_history && Array.isArray((selectedSubscription as any).renewal_history) && (selectedSubscription as any).renewal_history.length>0 && (
+                    <div className="mb-3 bg-white border border-indigo-100 rounded-xl p-3">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Renewal History</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(selectedSubscription as any).renewal_history.slice(-3).map((r:any,i:number)=> (
+                          <span key={i} className="inline-flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded-full text-[10px] font-bold text-gray-700">{formatDate(r.previous_end_date)} → {formatDate(r.new_end_date)} · {r.renewal_days}d {r.auto_renew ? '· Auto' : ''}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold text-gray-600">Actions:</span>
+                    <button type="button" onClick={()=> { setRenewDays((selectedSubscription as any).auto_renew_days || 7); setRenewAuto(!!(selectedSubscription as any).auto_renew); setShowRenewModal(true); }} className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white border border-emerald-600 rounded-xl font-bold hover:bg-emerald-700 transition text-xs shadow-sm">
+                      <RefreshCw className="w-3.5 h-3.5" /> Renew
+                    </button>
+                    <span className="text-[11px] text-gray-400">Extends {renewDays} days keeping meal plan & deliveries</span>
+                  </div>
+                </div>
+              )}
               <div className="bg-amber-50/50 border border-amber-200 rounded-xl p-4">
                 <h3 className="text-sm font-extrabold text-amber-800 uppercase tracking-wider mb-1 flex items-center gap-2">
                   <Bell className="w-4 h-4 text-amber-600" /> Payment Follow-up
@@ -994,6 +1326,177 @@ export default function SalesDashboardPage() {
         </div>
       )}
 
+      {/* Renew Modal — Sales */}
+      {showRenewModal && selectedSubscription && (
+        <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={()=> !renewSaving && setShowRenewModal(false)}>
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e=> e.stopPropagation()}>
+            <div className="flex items-center justify-between p-6 border-b border-gray-100 sticky top-0 bg-white rounded-t-2xl z-10">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2"><RefreshCw className="w-5 h-5 text-emerald-600" /> Renew Subscription</h2>
+                <p className="text-xs text-gray-500 mt-0.5">{selectedCustomer?.name || (customerEnquiries[selectedCustomer?.phone||''] as any)?.customer_name || 'Customer'} · {selectedSubscription.duration_days} days</p>
+              </div>
+              <button onClick={()=> !renewSaving && setShowRenewModal(false)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-6 space-y-5">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-center">
+                  <p className="text-[10px] font-bold text-indigo-600 uppercase">Current Period</p>
+                  <p className="text-xs font-black text-gray-900 mt-1">{formatDate(getRenewPeriodSales(selectedSubscription).currentStart)} → {formatDate(getRenewPeriodSales(selectedSubscription).currentEnd)}</p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">{selectedSubscription.duration_days} days</p>
+                </div>
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center">
+                  <p className="text-[10px] font-bold text-emerald-600 uppercase">New Period</p>
+                  <p className="text-xs font-black text-emerald-700 mt-1">{formatDate(getRenewPeriodSales(selectedSubscription).newStart)} → {formatDate(getRenewPeriodSales(selectedSubscription).newEnd)}</p>
+                  <p className="text-[10px] text-emerald-600 mt-0.5">{renewDays} days · Auto {renewAuto ? 'ON' : 'OFF'}</p>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-bold text-gray-700 mb-2">Renew for</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {[7,14,30].map(d=> (
+                    <button key={d} type="button" onClick={()=> setRenewDays(d)} className={`py-2.5 rounded-xl font-bold text-sm border transition ${renewDays===d ? 'bg-emerald-600 text-white border-emerald-600 shadow' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}>{d} Days</button>
+                  ))}
+                </div>
+                <div className="mt-3">
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Custom Days (1-90)</label>
+                  <input type="number" min={1} max={90} value={renewDays} onChange={e=> setRenewDays(Math.max(1, Math.min(90, Number(e.target.value)||1)))} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500" placeholder="Enter days" />
+                </div>
+              </div>
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-bold text-gray-900 flex items-center gap-1.5"><Repeat className="w-4 h-4 text-emerald-600" /> Auto Renew</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">Automatically extend for {renewDays} days when period ends</p>
+                </div>
+                <button type="button" onClick={()=> setRenewAuto(v=> !v)} className={`relative inline-flex h-7 w-12 items-center rounded-full transition ${renewAuto ? 'bg-emerald-600' : 'bg-gray-300'}`}>
+                  <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${renewAuto ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+              {renewAuto && (
+                <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">Auto-renew ON: After {formatDate(getRenewPeriodSales(selectedSubscription).newEnd)} it will automatically create next {renewDays}-day period.</p>
+              )}
+              <p className="text-[11px] text-gray-400">Extends delivery schedule & keeps 7-day meal plan, day-wise edits, and customer details.</p>
+            </div>
+            <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 p-6 border-t border-gray-100">
+              <button onClick={()=> setShowRenewModal(false)} disabled={renewSaving} className="px-5 py-2.5 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 text-sm">Cancel</button>
+              <button onClick={handleRenewSales} disabled={renewSaving} className="px-6 py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 disabled:opacity-50 text-sm flex items-center justify-center gap-2">
+                {renewSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} {renewSaving ? 'Renewing...' : `Renew ${renewDays} Days`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Customer — Manual Entry (Sales) */}
+      {showAddCustomerModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-start justify-center p-4 pt-8 overflow-y-auto" onClick={() => !addingCustomer && setShowAddCustomerModal(false)}>
+          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl mb-8" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-6 border-b border-gray-100 sticky top-0 bg-white rounded-t-2xl z-10">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Add Customer — Manual Entry</h2>
+                <p className="text-sm text-gray-500 mt-0.5">Enter customer details manually. Uses same database & validation as onboarding.</p>
+              </div>
+              <button onClick={() => !addingCustomer && setShowAddCustomerModal(false)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-lg transition">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form
+              onSubmit={handleAddCustomer}
+              className="p-6 space-y-6"
+            >
+              <div>
+                <h3 className="text-sm font-extrabold text-gray-800 uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <User className="w-4 h-4 text-blue-600" /> Personal Details
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Customer Name *</label>
+                    <input type="text" required value={addCustomerForm.name} onChange={(e) => setAddCustomerForm({ ...addCustomerForm, name: e.target.value })} placeholder="e.g., Arjun Kumar" className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Phone *</label>
+                    <input type="tel" required value={addCustomerForm.phone} onChange={(e) => setAddCustomerForm({ ...addCustomerForm, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })} placeholder="10-digit mobile" inputMode="numeric" maxLength={10} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Email</label>
+                    <input type="email" value={addCustomerForm.email} onChange={(e) => setAddCustomerForm({ ...addCustomerForm, email: e.target.value })} placeholder="optional" className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Address</label>
+                    <input type="text" value={addCustomerForm.address} onChange={(e) => setAddCustomerForm({ ...addCustomerForm, address: e.target.value })} placeholder="Optional" className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                </div>
+              </div>
+              <div>
+                <h3 className="text-sm font-extrabold text-gray-800 uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-blue-600" /> Health & Preferences
+                </h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Age</label>
+                    <input type="number" min={10} max={100} value={addCustomerForm.age} onChange={(e) => setAddCustomerForm({ ...addCustomerForm, age: Number(e.target.value) })} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Gender</label>
+                    <select value={addCustomerForm.gender} onChange={(e) => setAddCustomerForm({ ...addCustomerForm, gender: e.target.value })} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500">
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Height (cm)</label>
+                    <input type="number" value={addCustomerForm.height} onChange={(e) => setAddCustomerForm({ ...addCustomerForm, height: Number(e.target.value) })} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Weight (kg)</label>
+                    <input type="number" value={addCustomerForm.weight} onChange={(e) => setAddCustomerForm({ ...addCustomerForm, weight: Number(e.target.value) })} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Food</label>
+                    <select value={addCustomerForm.food} onChange={(e) => setAddCustomerForm({ ...addCustomerForm, food: e.target.value })} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500">
+                      <option value="veg">Vegetarian</option>
+                      <option value="non_veg">Non-Vegetarian</option>
+                      <option value="egg">Eggetarian</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Activity</label>
+                    <select value={addCustomerForm.activity} onChange={(e) => setAddCustomerForm({ ...addCustomerForm, activity: e.target.value })} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500">
+                      <option value="sedentary">Sedentary</option>
+                      <option value="active">On my feet</option>
+                      <option value="gym">Gym regular</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Goal</label>
+                    <select value={addCustomerForm.goal} onChange={(e) => setAddCustomerForm({ ...addCustomerForm, goal: e.target.value })} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500">
+                      <option value="loss">Weight Loss</option>
+                      <option value="gain">Weight Gain</option>
+                      <option value="muscle">Muscle Gain</option>
+                      <option value="maintenance">Maintenance</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Meals/Day</label>
+                    <select value={addCustomerForm.freq} onChange={(e) => setAddCustomerForm({ ...addCustomerForm, freq: Number(e.target.value) })} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500">
+                      {[1, 2, 3].map((n) => <option key={n} value={n}>{n} meal{n > 1 ? 's' : ''}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-2">Same validation as onboarding: phone must be 10 digits, name required. Duplicate phone will be blocked.</p>
+              </div>
+              <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4 border-t border-gray-100">
+                <button type="button" onClick={() => setShowAddCustomerModal(false)} disabled={addingCustomer} className="px-5 py-2.5 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition text-sm min-h-[44px] disabled:opacity-50">
+                  Cancel
+                </button>
+                <button type="submit" disabled={addingCustomer} className="px-6 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition text-sm min-h-[44px] flex items-center justify-center gap-2 disabled:opacity-50">
+                  {addingCustomer ? 'Adding...' : 'Add Customer'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       {/* Success / Error Toast */}
       {toast && (
         <div className={`fixed inset-x-0 top-4 mx-auto max-w-sm z-[70] rounded-md px-4 py-3 text-center text-sm text-white shadow-lg ${

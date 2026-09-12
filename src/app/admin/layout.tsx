@@ -98,16 +98,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   if (userRole === 'sales') {
     navItems.push(
       { href: '/admin/roles/sales', label: 'Sales Dashboard', icon: ClipboardList },
+      { href: '/admin/enquiries', label: 'Payment', icon: DollarSign },
+      { href: '/admin/subscriptions', label: 'Subscriptions', icon: CalendarCheck },
     );
   }
 
   if (userRole === 'verifier') {
     navItems.push(
       { href: '/admin/roles/verifier', label: 'Verifier Dashboard', icon: CheckSquare },
-      { href: '/admin/enquiries', label: 'Payment', icon: DollarSign },
-      { href: '/admin/subscriptions', label: 'Subscriptions', icon: CalendarCheck },
       { href: '/admin/roles/delivery-mappings', label: 'Chef-Delivery Map', icon: MapPin },
-      // { href: '/admin/payments', label: 'Payments Ledger', icon: DollarSign },
     );
   }
 

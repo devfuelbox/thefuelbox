@@ -1,15 +1,23 @@
 import 'dotenv/config';
 import { Sequelize, DataTypes } from 'sequelize';
 
+const DATABASE_URL = process.env.DATABASE_URL?.trim();
 const DB_HOST = process.env.DB_HOST || 'localhost';
 const DB_PORT = Number(process.env.DB_PORT) || 3306;
 const DB_USER = process.env.DB_USER || 'root';
 const DB_PASSWORD = process.env.DB_PASSWORD || '';
 const DB_NAME = process.env.DB_NAME || 'fuelbox_db';
 
-async function seed() {
+async function getSequelizeInstance(): Promise<Sequelize> {
+  if (DATABASE_URL) {
+    console.log(`Connecting to PostgreSQL (Neon) via DATABASE_URL...`);
+    return new Sequelize(DATABASE_URL, {
+      dialect: 'postgres',
+      logging: false,
+      dialectOptions: { ssl: { require: true, rejectUnauthorized: false } },
+    });
+  }
   console.log(`Connecting to MySQL database ${DB_NAME} at ${DB_HOST}:${DB_PORT}...`);
-  
   // Connect to MySQL server first to create database if it doesn't exist
   const serverSequelize = new Sequelize('', DB_USER, DB_PASSWORD, {
     host: DB_HOST,
@@ -17,16 +25,18 @@ async function seed() {
     dialect: 'mysql',
     logging: false,
   });
-
   await serverSequelize.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`;`);
   await serverSequelize.close();
-
-  const sequelize = new Sequelize(DB_NAME, DB_USER, DB_PASSWORD, {
+  return new Sequelize(DB_NAME, DB_USER, DB_PASSWORD, {
     host: DB_HOST,
     port: DB_PORT,
     dialect: 'mysql',
     logging: false,
   });
+}
+
+async function seed() {
+  const sequelize = await getSequelizeInstance();
 
   try {
     await sequelize.authenticate();

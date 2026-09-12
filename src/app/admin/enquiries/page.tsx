@@ -5,7 +5,7 @@ import {
   Plus, Search, X, Save, Trash2, Eye, DollarSign, ChevronLeft, ChevronRight,
   Phone, Mail, MapPin, CalendarDays, User, Ruler, Weight, Flame, Dumbbell,
   Wheat, Apple, Utensils, Clock, CheckCircle2, AlertTriangle, Target,
-  Activity, Zap, Coffee, Sun, Moon, Star, FileText, CreditCard, Hash, ThumbsDown, MessageCircle
+  Activity, Zap, Coffee, Sun, Moon, Star, FileText, CreditCard, Hash, ThumbsDown, MessageCircle, Download, Loader2
 } from 'lucide-react';
 import { calculateNutrition, calculateItemNutrition, distributeMeals } from '@/lib/nutrition/calculations';
 import { canonicalMealPlan, normalizeMealPlan, planTotals, selectedFoodItemsFromPlan } from '@/lib/mealPlan';
@@ -133,6 +133,7 @@ export default function AdminEnquiriesPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [addPayModal, setAddPayModal] = useState(false);
   const [addPayForm, setAddPayForm] = useState({ amount: 0, method: 'cash', date: '', note: '' });
+  const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null);
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('fuelbox_token') : '';
 
@@ -323,6 +324,43 @@ export default function AdminEnquiriesPage() {
     } catch { alert('Failed to update status.'); }
   };
 
+  const handleDownloadPdf = async (r: EnquiryRecord) => {
+    setDownloadingPdf(r.id);
+    try {
+      const { pdf } = await import('@react-pdf/renderer');
+      const { default: CustomerPdf } = await import('@/components/pdf/CustomerPdf');
+      const React = await import('react');
+      // Try to fetch subscription for this enquiry to include subscription details in PDF
+      let sub: any = null;
+      try {
+        const token = typeof window !== 'undefined' ? localStorage.getItem('fuelbox_token') : '';
+        const sRes = await fetch('/api/admin/subscriptions', { headers: { Authorization: `Bearer ${token}` } });
+        if (sRes.ok) {
+          const subs: any[] = await sRes.json();
+          sub = subs.find((s: any) => s.customer_enquiry_id === r.id) || null;
+        }
+      } catch {}
+      const doc = React.createElement(CustomerPdf as any, {
+        customer: { name: r.customer_name, phone: r.phone, email: r.email },
+        enquiry: r,
+        subscription: sub,
+      });
+      const blob = await pdf(doc as any).toBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `FuelBox_${r.customer_name.replace(/\s+/g,'_')}_${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('[PDF] failed', e);
+      alert('Failed to generate PDF');
+    }
+    setDownloadingPdf(null);
+  };
+
   const totals = useMemo(() => ({
     revenue: records.reduce((s, r) => s + Number(r.paid_amount), 0),
     outstanding: records.reduce((s, r) => s + Number(r.outstanding_amount), 0),
@@ -472,7 +510,7 @@ export default function AdminEnquiriesPage() {
                       </span>
                     </td>
                     <td className="px-5 py-4 text-right">
-                      <div className="flex items-center justify-end gap-1">
+                      <div className="flex items-center justify-end gap-1 flex-wrap">
                         {salesStatusOf(r) !== 'non_follow_up' && salesStatusOf(r) !== 'not_interested' && (
                           <>
                             <button onClick={() => quickAction(r, 'not_interested')}
@@ -485,6 +523,10 @@ export default function AdminEnquiriesPage() {
                             </button>
                           </>
                         )}
+                        <button onClick={() => handleDownloadPdf(r)} disabled={downloadingPdf===r.id}
+                          className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition disabled:opacity-50 min-h-[32px] min-w-[32px] flex items-center justify-center" title="Download PDF">
+                          {downloadingPdf===r.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                        </button>
                         <button onClick={() => { setViewing(r); setAddPayModal(true); }}
                           disabled={r.payment_status === 'paid'}
                           className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition disabled:opacity-30" title="Add Payment">
@@ -943,10 +985,14 @@ export default function AdminEnquiriesPage() {
                 <h2 className="text-xl font-bold text-gray-900">Enquiry Details</h2>
                 <p className="text-sm text-gray-400 mt-0.5">Complete record for {viewing.customer_name}</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className={`inline-flex items-center gap-1 px-2 py-1 border text-[10px] font-bold rounded-lg ${SALES_COLORS[salesStatusOf(viewing)]}`}>
                   {SALES_LABELS[salesStatusOf(viewing)]}
                 </span>
+                <button onClick={() => handleDownloadPdf(viewing)} disabled={downloadingPdf===viewing.id}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 transition min-h-[36px]">
+                  {downloadingPdf===viewing.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} <span className="hidden sm:inline">Download</span>
+                </button>
                 <button onClick={() => { setViewing(null); openEdit(viewing); }}
                   className="px-3 py-2 text-xs font-bold text-amber-600 bg-amber-50 rounded-lg hover:bg-amber-100 transition">Edit</button>
                 <button onClick={() => setViewing(null)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-lg transition">

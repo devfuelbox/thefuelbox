@@ -11,7 +11,7 @@ const nextConfig = {
   poweredByHeader: false,
 
   experimental: {
-    serverComponentsExternalPackages: ['sequelize', 'mysql2', 'bcrypt'],
+    serverComponentsExternalPackages: ['sequelize', 'pg', 'pg-hstore', 'mysql2', 'bcrypt'],
     // Tree-shake icon libraries — only includes icons actually imported
     optimizePackageImports: ['lucide-react', '@heroicons/react', 'framer-motion'],
     turbo: {
@@ -119,7 +119,7 @@ const nextConfig = {
   webpack: (config, { isServer, dev }) => {
     if (isServer) {
       // Prevent heavy server-side packages from being bundled client-side
-      config.externals = [...(config.externals || []), 'sequelize', 'mysql2', 'bcrypt'];
+      config.externals = [...(config.externals || []), 'sequelize', 'pg', 'pg-hstore', 'mysql2', 'bcrypt'];
     }
 
     // In production: enable module concatenation for smaller bundles

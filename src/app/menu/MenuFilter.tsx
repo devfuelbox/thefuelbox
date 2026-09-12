@@ -8,7 +8,9 @@ import type { MenuItemData } from '@/app/menu/page';
 type FilterType =
   | 'all'
   | 'veg'
-  | 'non-veg';
+  | 'egg'
+  | 'non-veg'
+  | 'non_veg';
 
 export default function MenuFilter({
   meals,
@@ -56,10 +58,11 @@ export default function MenuFilter({
   const filteredMeals = useMemo(() => {
     return meals.filter((meal) => {
 
-      // Diet filter
+      // Diet filter - normalize hyphen/underscore and handle egg
+      const normalize = (v: string) => v.toLowerCase().replace('-', '_');
       const matchesDiet =
         dietFilter === 'all' ||
-        meal.diet.toLowerCase() === dietFilter;
+        normalize(meal.diet) === normalize(dietFilter);
 
       // Category filter
       const matchesCategory =
@@ -186,7 +189,7 @@ export default function MenuFilter({
                 onClick={() =>
                   setDietFilter('veg')
                 }
-                className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
+                className={`rounded-full px-4 py-2 text-xs font-semibold transition min-h-[36px] ${
                   dietFilter === 'veg'
                     ? 'bg-green-600 text-white'
                     : 'bg-green-50 text-green-700 hover:bg-green-100'
@@ -198,10 +201,24 @@ export default function MenuFilter({
               <button
                 type="button"
                 onClick={() =>
-                  setDietFilter('non-veg')
+                  setDietFilter('egg')
                 }
-                className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
-                  dietFilter === 'non-veg'
+                className={`rounded-full px-4 py-2 text-xs font-semibold transition min-h-[36px] ${
+                  dietFilter === 'egg'
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
+                }`}
+              >
+                🥚 Egg
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setDietFilter('non_veg')
+                }
+                className={`rounded-full px-4 py-2 text-xs font-semibold transition min-h-[36px] ${
+                  dietFilter === 'non_veg' || (dietFilter as string) === 'non-veg'
                     ? 'bg-red-600 text-white'
                     : 'bg-red-50 text-red-700 hover:bg-red-100'
                 }`}
@@ -362,18 +379,22 @@ export default function MenuFilter({
                   </div>
                 )}
 
-                {/* Diet Badge */}
-                {meal.diet && (
-                  <span
-                    className={`absolute left-2 top-2 rounded-full px-2 py-1 text-[9px] font-semibold uppercase sm:left-3 sm:top-3 sm:px-3 sm:text-xs ${
-                      meal.diet.toLowerCase() === 'veg'
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-red-100 text-red-700'
-                    }`}
-                  >
-                    {meal.diet}
-                  </span>
-                )}
+                {/* Diet Badge - Veg green, Egg amber, Non-Veg red */}
+                {meal.diet &&
+                  (() => {
+                    const d = meal.diet.toLowerCase().replace('-', '_');
+                    const badgeClass =
+                      d === 'veg'
+                        ? 'bg-green-100 text-green-700 border border-green-200'
+                        : d === 'egg'
+                          ? 'bg-amber-100 text-amber-700 border border-amber-200'
+                          : 'bg-red-100 text-red-700 border border-red-200';
+                    return (
+                      <span className={`absolute left-2 top-2 rounded-full px-2 py-1 text-[9px] font-semibold uppercase sm:left-3 sm:top-3 sm:px-3 sm:text-xs ${badgeClass}`}>
+                        {meal.diet}
+                      </span>
+                    );
+                  })()}
 
               </div>
 
