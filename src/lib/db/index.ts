@@ -1,5 +1,5 @@
 import { Sequelize, DataTypes } from 'sequelize';
-
+import pg from 'pg';
 // Neon PostgreSQL is the primary DB (DATABASE_URL).
 // Fallback to legacy MySQL env (DB_HOST etc.) for local dev without DATABASE_URL.
 const DATABASE_URL = process.env.DATABASE_URL?.trim();
@@ -13,6 +13,7 @@ export function getSequelize(): Sequelize {
     // Neon PostgreSQL — requires SSL
     sequelizeInstance = new Sequelize(DATABASE_URL, {
       dialect: 'postgres',
+      dialectModule: pg,
       logging: false,
       dialectOptions: {
         ssl: { require: true, rejectUnauthorized: false },
