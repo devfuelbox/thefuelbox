@@ -2984,7 +2984,7 @@ export default function Onboarding() {
               src="/fuelbox_banner_transparent_2x.png"
               alt="FuelBox"
               className="h-[84px] w-auto max-w-[280px] sm:h-[92px] sm:max-w-[310px] md:h-[100px] md:max-w-[340px] object-contain block shrink-0 max-w-full mx-auto sm:mx-0"
-              style={{ height: "100%", maxWidth: "100%", objectFit: "contain", aspectRatio: "3200 / 966", display: "block" }}
+              style={{ maxWidth: "100%", objectFit: "contain", aspectRatio: "3200 / 966", display: "block" }}
               onError={(e) => {
                 e.currentTarget.style.display = "none";
                 const textEl = e.currentTarget.nextSibling as HTMLDivElement;
