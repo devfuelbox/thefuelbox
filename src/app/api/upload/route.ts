@@ -27,10 +27,10 @@ export async function POST(req: Request) {
       .slice(0, 50) || 'image';
     const filename = `${Date.now()}-${base}${ext || '.jpg'}`;
 
-    // Upload to Vercel Blob - persistent storage that works on Vercel Production
-    // Requires BLOB_READ_WRITE_TOKEN env var (added via Vercel Dashboard > Storage > Blob)
+    // Upload to Vercel Blob - public store for menu images (direct <img> rendering)
+    // Requires BLOB_READ_WRITE_TOKEN env var and store configured as PUBLIC in Vercel Dashboard
     const blob = await put(`fuelbox-menu/${filename}`, file, {
-      access: 'private',
+      access: 'public',
     });
 
     // Return Blob public URL - frontend saves this directly to image_url column
