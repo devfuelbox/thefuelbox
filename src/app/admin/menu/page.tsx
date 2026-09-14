@@ -46,24 +46,13 @@ const getDietConfig = (diet: string) => {
 
 const normalizeImageUrlForStorage = (url?: string | null): string | null => {
   if (!url) return null;
-  let p = url.trim();
-  // Strip absolute origin (http://localhost:3000, https://localhost:3000, https://<prod-host>, etc.)
-  // Do not store https://localhost... — store only relative pathname
-  if (p.startsWith('http://') || p.startsWith('https://')) {
-    try {
-      const u = new URL(p);
-      // Only strip if pathname looks like an app asset (/images/* or /uploads/*) or localhost host
-      // For external CDNs, keep as-is (not relevant for menu, but safe)
-      const isLocal = u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.pathname.startsWith('/images/') || u.pathname.startsWith('/uploads/');
-      if (isLocal) {
-        p = u.pathname;
-      } else {
-        return p; // keep external absolute URL
-      }
-    } catch {
-      // if URL parsing fails, keep as-is and try next normalization
-    }
+  const trimmed = url.trim();
+  // Requirement: If image_url is absolute http/https URL (Vercel Blob), return EXACTLY as is
+  // Do NOT prepend /images/ or convert to local path
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
   }
+  let p = trimmed;
   // Ensure leading slash for relative paths
   if (p && !p.startsWith('/') && !p.startsWith('data:') && !p.startsWith('blob:')) {
     p = `/${p}`;
@@ -78,11 +67,11 @@ const normalizeImageUrlForStorage = (url?: string | null): string | null => {
 const getDisplayImageUrl = (url?: string | null) => {
   if (!url) return null;
   if (url.startsWith('data:') || url.startsWith('blob:')) return url;
-  const normalized = normalizeImageUrlForStorage(url);
-  if (!normalized) return null;
-  // If normalized is already an absolute path (/images/... or /uploads/...) return it
-  if (normalized.startsWith('/images/') || normalized.startsWith('/uploads/') || normalized.startsWith('/')) return normalized;
-  return `/images/${normalized.replace(/^\//, '')}`;
+  // Requirement: Absolute http/https URLs (Vercel Blob) must remain unchanged
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  // Legacy local paths
+  if (url.startsWith('/images/') || url.startsWith('/uploads/') || url.startsWith('/')) return url;
+  return `/images/${url.replace(/^\//, '')}`;
 };
 
 export default function AdminMenuPage() {
@@ -214,9 +203,8 @@ export default function AdminMenuPage() {
       throw new Error(err.message || 'Failed to upload image');
     }
     const data = await res.json();
-    // Ensure we never store absolute https://localhost:3000... — normalize to relative
-    const normalized = normalizeImageUrlForStorage(data.url as string);
-    return (normalized as string) || (data.url as string);
+    // Save exact Blob URL returned by /api/upload (e.g., https://...blob.vercel-storage.com/...)
+    return data.url as string;
   };
 
   const handleNewImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -323,9 +311,9 @@ export default function AdminMenuPage() {
         fiber_g: Number(editingItem.fiber_g) || 0,
       };
       // Only include image_url if a new image was uploaded - keeps existing if unchanged
-      // Normalize to relative path so DB never stores https://localhost:3000...
+      // Save exact Blob URL (e.g., https://...blob.vercel-storage.com/...) without conversion
       if (imageUrl) {
-        payload.image_url = normalizeImageUrlForStorage(imageUrl) || imageUrl;
+        payload.image_url = imageUrl;
       }
 
       const res = await fetch(
@@ -581,10 +569,10 @@ export default function AdminMenuPage() {
         imageUrl = await uploadImage(newImageFile);
       }
 
-      const normalizedUrl = imageUrl ? normalizeImageUrlForStorage(imageUrl) || imageUrl : undefined;
+      // Save exact Blob URL without conversion
       const payload = {
         ...newItem,
-        ...(normalizedUrl ? { image_url: normalizedUrl } : {}),
+        ...(imageUrl ? { image_url: imageUrl } : {}),
       };
 
       const res = await fetch(
