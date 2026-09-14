@@ -52,6 +52,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="dns-prefetch" href="https://images.unsplash.com" />
         {/* ── Hero image preload is handled automatically by <Image priority> ── */}
         {/* ── Google Fonts are now self-hosted via next/font — no external link needed ── */}
+        <link rel="icon" type="image/png" href="/android-chrome-192x192.png" />
       </head>
       <body className="flex flex-col min-h-screen font-body text-gray-900 bg-gray-50">
         <QueryProvider>

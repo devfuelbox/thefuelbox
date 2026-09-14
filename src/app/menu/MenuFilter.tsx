@@ -55,6 +55,7 @@ export default function MenuFilter({
   /*
    * Filter Meals
    */
+
   const filteredMeals = useMemo(() => {
     return meals.filter((meal) => {
 
@@ -366,18 +367,39 @@ export default function MenuFilter({
               {/* Image */}
               <div className="relative aspect-square overflow-hidden bg-gray-100 sm:aspect-[4/3]">
 
-                {meal.image_url ? (
-                  <img
-                    src={`/images/${meal.image_url}`}
-                    alt={meal.name}
-                    loading="lazy"
-                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-xs text-gray-400">
-                    No Image
-                  </div>
-                )}
+                {(() => {
+                  const getImageSrc = (url?: string | null) => {
+                    if (!url) return null;
+                    if (url.startsWith('data:') || url.startsWith('blob:')) return url;
+                    let p = url.trim();
+                    if (p.startsWith('http://') || p.startsWith('https://')) {
+                      try {
+                        const u = new URL(p);
+                        const isLocal = u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.pathname.startsWith('/images/') || u.pathname.startsWith('/uploads/');
+                        if (isLocal) p = u.pathname;
+                        else return p;
+                      } catch {}
+                    }
+                    if (!p.startsWith('/') && !p.startsWith('data:') && !p.startsWith('blob:')) p = `/${p}`;
+                    if (/^\/[^/]+\.(jpg|jpeg|png|webp|avif|gif|svg)$/i.test(p) && !p.startsWith('/images/') && !p.startsWith('/uploads/')) {
+                      p = `/images${p}`;
+                    }
+                    return p;
+                  };
+                  const src = getImageSrc(meal.image_url);
+                  return src ? (
+                    <img
+                      src={src}
+                      alt={meal.name}
+                      loading="lazy"
+                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-xs text-gray-400">
+                      No Image
+                    </div>
+                  );
+                })()}
 
                 {/* Diet Badge - Veg green, Egg amber, Non-Veg red */}
                 {meal.diet &&

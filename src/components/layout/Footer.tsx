@@ -2,10 +2,6 @@ import { Link } from 'react-router-dom'
 import { ROUTES } from '@/lib/constants'
 
 const footerLinks = [
-  { to: ROUTES.ABOUT, label: 'About' },
-  { to: ROUTES.MENU, label: 'Menu' },
-  { to: ROUTES.SUBSCRIPTIONS, label: 'Plans' },
-  { to: ROUTES.CONTACT, label: 'Contact' },
   { to: ROUTES.TERMS, label: 'Terms & Conditions' },
   { to: ROUTES.REFUND_POLICY, label: 'Refund Policy' },
   { to: ROUTES.PRIVACY_POLICY, label: 'Privacy Policy' },
@@ -74,7 +70,7 @@ export default function Footer() {
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8 relative z-10">
         <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
           <div>
-            <img src="/logo.png" alt="Fuel Box" className="h-8 w-auto object-contain mb-2" onError={(e) => {
+            <img src="/fuelbox_banner_transparent_2x.png" alt="Fuel Box" className="h-8 w-auto object-contain mb-2" onError={(e) => {
               e.currentTarget.style.display = 'none';
               const textEl = e.currentTarget.nextSibling as HTMLSpanElement;
               if (textEl) textEl.style.display = 'inline';
@@ -90,19 +86,10 @@ export default function Footer() {
             </p>
           </div>
           <div>
-            <h2 className="mb-3 text-sm font-semibold text-gray-900 uppercase tracking-wider text-center">Quick Links</h2>
-            <div className="flex gap-6 justify-center">
+            <h2 className="mb-3 text-sm font-semibold text-gray-900 uppercase tracking-wider">Quick Links</h2>
+            <div className="flex mx-auto gap-6 justify-start sm:flex-col sm:items-start">
               <ul className="space-y-2">
-                {footerLinks.slice(0, 4).map((link) => (
-                  <li key={link.to}>
-                    <Link to={link.to} className="text-sm text-gray-500 hover:text-brand-600 transition-colors whitespace-nowrap">
-                      {link.label}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-              <ul className="space-y-2">
-                {footerLinks.slice(4).map((link) => (
+                {footerLinks.slice(0).map((link) => (
                   <li key={link.to}>
                     <Link to={link.to} className="text-sm text-gray-500 hover:text-brand-600 transition-colors whitespace-nowrap">
                       {link.label}
@@ -133,7 +120,7 @@ export default function Footer() {
             <h2 className="mb-3 text-sm font-semibold text-gray-900 uppercase tracking-wider">Follow Us</h2>
             <div className="flex flex-col gap-3">
               <a
-                href="https://instagram.com/fuelbox"
+                href="https://www.instagram.com/thefuelbox.in?stkn=MWRxcWtmcDVmeW1rcQ=="
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Instagram"

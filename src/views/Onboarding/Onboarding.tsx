@@ -2981,9 +2981,9 @@ export default function Onboarding() {
         >
           <div style={{ display: "flex", alignItems: "center" }}>
             <img
-              src="/logo.png"
+              src="/fuelbox_banner_transparent_2x.png"
               alt="FuelBox"
-              style={{ height: 32, width: "auto", objectFit: "contain" }}
+              style={{ height: 100, width: "auto", objectFit: "contain" }}
               onError={(e) => {
                 e.currentTarget.style.display = "none";
                 const textEl = e.currentTarget.nextSibling as HTMLDivElement;

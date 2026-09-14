@@ -24,6 +24,24 @@ const ALLOWED_FIELDS = [
 
 type AllowedField = (typeof ALLOWED_FIELDS)[number];
 
+function normalizeImageUrlForStorage(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  let p = raw.trim();
+  if (p.startsWith('http://') || p.startsWith('https://')) {
+    try {
+      const u = new URL(p);
+      const isLocal = u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.pathname.startsWith('/images/') || u.pathname.startsWith('/uploads/');
+      if (isLocal) p = u.pathname;
+      else return p;
+    } catch {}
+  }
+  if (!p.startsWith('/') && !p.startsWith('data:') && !p.startsWith('blob:')) p = `/${p}`;
+  if (/^\/[^/]+\.(jpg|jpeg|png|webp|avif|gif|svg)$/i.test(p) && !p.startsWith('/images/') && !p.startsWith('/uploads/')) {
+    p = `/images${p}`;
+  }
+  return p;
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -41,6 +59,12 @@ export async function POST(req: Request) {
     }
     if (sanitised.name.length > 200) {
       return NextResponse.json({ message: 'name too long' }, { status: 400 });
+    }
+
+    // Normalize image_url to relative path — never store https://localhost:3000...
+    if ('image_url' in sanitised && sanitised.image_url != null && sanitised.image_url !== '') {
+      const normalized = normalizeImageUrlForStorage(sanitised.image_url);
+      if (normalized) sanitised.image_url = normalized;
     }
 
     const { MenuItem } = await getDbModels();

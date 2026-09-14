@@ -11,6 +11,8 @@ import {
   Eye,
   EyeOff,
   Save,
+  Image as ImageIcon,
+  Upload,
 } from 'lucide-react';
 
 type PriceUnit = 'kg' | 'piece';
@@ -32,6 +34,7 @@ interface MenuItem {
   category: string;
   cookable: boolean;
   is_available: boolean;
+  image_url?: string | null;
 }
 
 const getDietConfig = (diet: string) => {
@@ -39,6 +42,47 @@ const getDietConfig = (diet: string) => {
   if (d === 'egg') return { label: '🥚 Egg', classes: 'bg-amber-100 text-amber-700 border border-amber-200' };
   if (d === 'non_veg') return { label: '🔴 Non-Veg', classes: 'bg-red-100 text-red-700 border border-red-200' };
   return { label: '🟢 Veg', classes: 'bg-emerald-100 text-emerald-700 border border-emerald-200' };
+};
+
+const normalizeImageUrlForStorage = (url?: string | null): string | null => {
+  if (!url) return null;
+  let p = url.trim();
+  // Strip absolute origin (http://localhost:3000, https://localhost:3000, https://<prod-host>, etc.)
+  // Do not store https://localhost... — store only relative pathname
+  if (p.startsWith('http://') || p.startsWith('https://')) {
+    try {
+      const u = new URL(p);
+      // Only strip if pathname looks like an app asset (/images/* or /uploads/*) or localhost host
+      // For external CDNs, keep as-is (not relevant for menu, but safe)
+      const isLocal = u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.pathname.startsWith('/images/') || u.pathname.startsWith('/uploads/');
+      if (isLocal) {
+        p = u.pathname;
+      } else {
+        return p; // keep external absolute URL
+      }
+    } catch {
+      // if URL parsing fails, keep as-is and try next normalization
+    }
+  }
+  // Ensure leading slash for relative paths
+  if (p && !p.startsWith('/') && !p.startsWith('data:') && !p.startsWith('blob:')) {
+    p = `/${p}`;
+  }
+  // If bare filename like "paneer.jpg" without folder, it will be "/paneer.jpg" -> normalize to "/images/paneer.jpg"
+  if (p && /^\/[^/]+\.(jpg|jpeg|png|webp|avif|gif|svg)$/i.test(p) && !p.startsWith('/images/') && !p.startsWith('/uploads/')) {
+    p = `/images${p}`;
+  }
+  return p;
+};
+
+const getDisplayImageUrl = (url?: string | null) => {
+  if (!url) return null;
+  if (url.startsWith('data:') || url.startsWith('blob:')) return url;
+  const normalized = normalizeImageUrlForStorage(url);
+  if (!normalized) return null;
+  // If normalized is already an absolute path (/images/... or /uploads/...) return it
+  if (normalized.startsWith('/images/') || normalized.startsWith('/uploads/') || normalized.startsWith('/')) return normalized;
+  return `/images/${normalized.replace(/^\//, '')}`;
 };
 
 export default function AdminMenuPage() {
@@ -82,6 +126,14 @@ export default function AdminMenuPage() {
     cookable: false,
     is_available: true,
   });
+
+  // Image upload states - Add
+  const [newImageFile, setNewImageFile] = useState<File | null>(null);
+  const [newImagePreview, setNewImagePreview] = useState<string | null>(null);
+  // Image upload states - Edit
+  const [editImageFile, setEditImageFile] = useState<File | null>(null);
+  const [editImagePreview, setEditImagePreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   // --------------------------------------------------
   // LOAD MENU
@@ -150,6 +202,76 @@ export default function AdminMenuPage() {
   // OPEN EDIT MODAL
   // --------------------------------------------------
 
+  // --------------------------------------------------
+  // IMAGE HELPERS
+  // --------------------------------------------------
+  const uploadImage = async (file: File): Promise<string> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch('/api/upload', { method: 'POST', body: formData });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Failed to upload image');
+    }
+    const data = await res.json();
+    // Ensure we never store absolute https://localhost:3000... — normalize to relative
+    const normalized = normalizeImageUrlForStorage(data.url as string);
+    return (normalized as string) || (data.url as string);
+  };
+
+  const handleNewImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Only image files are allowed');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File too large. Max 5MB allowed');
+      return;
+    }
+    if (newImagePreview && newImagePreview.startsWith('blob:')) {
+      URL.revokeObjectURL(newImagePreview);
+    }
+    setNewImageFile(file);
+    setNewImagePreview(URL.createObjectURL(file));
+  };
+
+  const handleEditImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Only image files are allowed');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File too large. Max 5MB allowed');
+      return;
+    }
+    if (editImagePreview && editImagePreview.startsWith('blob:')) {
+      URL.revokeObjectURL(editImagePreview);
+    }
+    setEditImageFile(file);
+    setEditImagePreview(URL.createObjectURL(file));
+  };
+
+  const clearNewImage = () => {
+    if (newImagePreview && newImagePreview.startsWith('blob:')) URL.revokeObjectURL(newImagePreview);
+    setNewImageFile(null);
+    setNewImagePreview(null);
+  };
+
+  const clearEditImage = () => {
+    if (editImagePreview && editImagePreview.startsWith('blob:')) URL.revokeObjectURL(editImagePreview);
+    setEditImageFile(null);
+    // revert preview to original image
+    if (editingItem?.image_url) {
+      setEditImagePreview(getDisplayImageUrl(editingItem.image_url));
+    } else {
+      setEditImagePreview(null);
+    }
+  };
+
   const handleEditItem = (item: MenuItem) => {
     setEditingItem({
       ...item,
@@ -160,7 +282,8 @@ export default function AdminMenuPage() {
       fat_g: item.fat_g ?? 0,
       fiber_g: item.fiber_g ?? 0,
     });
-
+    setEditImageFile(null);
+    setEditImagePreview(getDisplayImageUrl(item.image_url));
     setShowEditModal(true);
   };
 
@@ -178,6 +301,33 @@ export default function AdminMenuPage() {
     setSavingEdit(true);
 
     try {
+      let imageUrl: string | undefined = undefined;
+      if (editImageFile) {
+        setUploading(true);
+        imageUrl = await uploadImage(editImageFile);
+        setUploading(false);
+      }
+
+      const payload: Record<string, unknown> = {
+        name: editingItem.name,
+        diet: editingItem.diet,
+        price: Number(editingItem.price),
+        price_unit:
+          editingItem.price_unit || 'piece',
+        is_available:
+          editingItem.is_available,
+        calories: Number(editingItem.calories) || 0,
+        protein_g: Number(editingItem.protein_g) || 0,
+        carbs_g: Number(editingItem.carbs_g) || 0,
+        fat_g: Number(editingItem.fat_g) || 0,
+        fiber_g: Number(editingItem.fiber_g) || 0,
+      };
+      // Only include image_url if a new image was uploaded - keeps existing if unchanged
+      // Normalize to relative path so DB never stores https://localhost:3000...
+      if (imageUrl) {
+        payload.image_url = normalizeImageUrlForStorage(imageUrl) || imageUrl;
+      }
+
       const res = await fetch(
         `/api/menu/${editingItem.id}`,
         {
@@ -185,20 +335,7 @@ export default function AdminMenuPage() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            name: editingItem.name,
-            diet: editingItem.diet,
-            price: Number(editingItem.price),
-            price_unit:
-              editingItem.price_unit || 'piece',
-            is_available:
-              editingItem.is_available,
-            calories: Number(editingItem.calories) || 0,
-            protein_g: Number(editingItem.protein_g) || 0,
-            carbs_g: Number(editingItem.carbs_g) || 0,
-            fat_g: Number(editingItem.fat_g) || 0,
-            fiber_g: Number(editingItem.fiber_g) || 0,
-          }),
+          body: JSON.stringify(payload),
         }
       );
 
@@ -231,11 +368,15 @@ export default function AdminMenuPage() {
                 carbs_g: Number(editingItem.carbs_g) || 0,
                 fat_g: Number(editingItem.fat_g) || 0,
                 fiber_g: Number(editingItem.fiber_g) || 0,
+                image_url: imageUrl || item.image_url || updatedItem.image_url,
               }
             : item
         )
       );
 
+      if (editImagePreview && editImagePreview.startsWith('blob:')) URL.revokeObjectURL(editImagePreview);
+      setEditImageFile(null);
+      setEditImagePreview(null);
       setShowEditModal(false);
       setEditingItem(null);
 
@@ -247,10 +388,11 @@ export default function AdminMenuPage() {
       );
 
       alert(
-        'Failed to update food item. Please try again.'
+        error instanceof Error ? error.message : 'Failed to update food item. Please try again.'
       );
     } finally {
       setSavingEdit(false);
+      setUploading(false);
     }
   };
 
@@ -433,6 +575,18 @@ export default function AdminMenuPage() {
     e.preventDefault();
 
     try {
+      setUploading(true);
+      let imageUrl: string | undefined = undefined;
+      if (newImageFile) {
+        imageUrl = await uploadImage(newImageFile);
+      }
+
+      const normalizedUrl = imageUrl ? normalizeImageUrlForStorage(imageUrl) || imageUrl : undefined;
+      const payload = {
+        ...newItem,
+        ...(normalizedUrl ? { image_url: normalizedUrl } : {}),
+      };
+
       const res = await fetch(
         '/api/menu',
         {
@@ -441,9 +595,7 @@ export default function AdminMenuPage() {
             'Content-Type':
               'application/json',
           },
-          body: JSON.stringify(
-            newItem
-          ),
+          body: JSON.stringify(payload),
         }
       );
 
@@ -481,6 +633,9 @@ export default function AdminMenuPage() {
         cookable: false,
         is_available: true,
       });
+      if (newImagePreview && newImagePreview.startsWith('blob:')) URL.revokeObjectURL(newImagePreview);
+      setNewImageFile(null);
+      setNewImagePreview(null);
     } catch (error) {
       console.error(
         'Failed to create food item:',
@@ -488,8 +643,10 @@ export default function AdminMenuPage() {
       );
 
       alert(
-        'Failed to create food item'
+        error instanceof Error ? error.message : 'Failed to create food item'
       );
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -540,6 +697,7 @@ export default function AdminMenuPage() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100 text-xs font-bold text-gray-400 uppercase tracking-wider">
+                <th className="py-4 px-6">Image</th>
                 <th className="py-4 px-6">Item Name</th>
                 <th className="py-4 px-6">Food Type</th>
                 <th className="py-4 px-6">Category</th>
@@ -556,19 +714,33 @@ export default function AdminMenuPage() {
             <tbody className="divide-y divide-gray-100 text-sm">
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-gray-400 font-medium">
+                  <td colSpan={12} className="py-12 text-center text-gray-400 font-medium">
                     Loading food items...
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-gray-400 font-medium">
+                  <td colSpan={12} className="py-12 text-center text-gray-400 font-medium">
                     No food items found matching filter.
                   </td>
                 </tr>
               ) : (
                 paginatedItems.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50/50 transition">
+                    <td className="py-3 px-6">
+                      {getDisplayImageUrl(item.image_url) ? (
+                        <img
+                          src={getDisplayImageUrl(item.image_url) as string}
+                          alt={item.name}
+                          className="w-12 h-12 object-cover rounded-lg border border-gray-200 shadow-sm"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center">
+                          <ImageIcon className="w-5 h-5 text-gray-400" />
+                        </div>
+                      )}
+                    </td>
                     <td className="py-4 px-6 font-bold text-gray-900">
                       <span className="block truncate max-w-[180px] xl:max-w-[220px]">{item.name}</span>
                       <span className="block text-xs font-normal text-gray-400 mt-0.5">
@@ -653,8 +825,20 @@ export default function AdminMenuPage() {
         ) : (
           paginatedItems.map((item) => (
             <div key={item.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3 transition hover:shadow-md">
-              {/* Header: Name + Diet badge */}
-              <div className="flex items-start justify-between gap-3">
+              {/* Header: Image + Name + Diet badge */}
+              <div className="flex items-start gap-3">
+                {getDisplayImageUrl(item.image_url) ? (
+                  <img
+                    src={getDisplayImageUrl(item.image_url) as string}
+                    alt={item.name}
+                    className="w-14 h-14 sm:w-16 sm:h-16 object-cover rounded-xl border border-gray-200 shadow-sm shrink-0"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                ) : (
+                  <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center shrink-0">
+                    <ImageIcon className="w-6 h-6 text-gray-400" />
+                  </div>
+                )}
                 <div className="min-w-0 flex-1">
                   <h3 className="font-bold text-gray-900 text-[15px] leading-tight break-words">{item.name}</h3>
                   <p className="text-xs text-gray-500 mt-1 capitalize flex flex-wrap items-center gap-1.5">
@@ -781,6 +965,9 @@ export default function AdminMenuPage() {
                 </div>
                 <button
                   onClick={() => {
+                    if (editImagePreview && editImagePreview.startsWith('blob:')) URL.revokeObjectURL(editImagePreview);
+                    setEditImageFile(null);
+                    setEditImagePreview(null);
                     setShowEditModal(false);
                     setEditingItem(null);
                   }}
@@ -808,6 +995,44 @@ export default function AdminMenuPage() {
                     <option value="egg">🥚 Egg</option>
                     <option value="non_veg">🔴 Non-Veg</option>
                   </select>
+                </div>
+
+                {/* FOOD IMAGE - Edit with preview, show current and allow replace */}
+                <div className="min-w-0">
+                  <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-2">Food Image</label>
+                  {/* Current / Preview */}
+                  {editImagePreview ? (
+                    <div className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50 p-2 mb-3">
+                      <img src={editImagePreview} alt="Preview" className="w-full h-40 sm:h-48 object-contain rounded-lg bg-white" />
+                      {editImageFile && (
+                        <button
+                          type="button"
+                          onClick={clearEditImage}
+                          className="absolute top-3 right-3 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition shadow"
+                          title="Remove new image and revert to original"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                      <p className="text-[11px] text-gray-500 mt-1.5 text-center truncate px-2">
+                        {editImageFile ? `${editImageFile.name} (new)` : 'Current image - select a new file below to replace'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 p-6 text-center mb-3">
+                      <ImageIcon className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                      <p className="text-xs text-gray-500">No image. Upload one below.</p>
+                    </div>
+                  )}
+                  <div className="relative">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleEditImageChange}
+                      className="block w-full text-xs sm:text-sm text-gray-500 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-brand-600 file:text-white hover:file:bg-brand-700 file:transition file:cursor-pointer cursor-pointer bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 file:min-h-[36px]"
+                    />
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-1.5">If no new image is selected, the existing image will be kept.</p>
                 </div>
 
                 {/* PRICE */}
@@ -908,12 +1133,12 @@ export default function AdminMenuPage() {
                 {/* ACTION BUTTONS - stack on mobile */}
                 <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 pt-4 border-t border-gray-100">
 
-                  <button type="button" onClick={() => { setShowEditModal(false); setEditingItem(null); }} className="w-full sm:w-auto px-5 py-3.5 sm:py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 active:bg-gray-200 transition text-sm min-h-[44px]">
+                  <button type="button" onClick={() => { if (editImagePreview && editImagePreview.startsWith('blob:')) URL.revokeObjectURL(editImagePreview); setEditImageFile(null); setEditImagePreview(null); setShowEditModal(false); setEditingItem(null); }} className="w-full sm:w-auto px-5 py-3.5 sm:py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 active:bg-gray-200 transition text-sm min-h-[44px]">
                     Cancel
                   </button>
-                  <button type="submit" disabled={savingEdit} className="w-full sm:w-auto px-6 py-3.5 sm:py-3 bg-brand-600 text-white rounded-xl font-bold hover:bg-brand-700 active:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm min-h-[44px] shadow-sm transition">
+                  <button type="submit" disabled={savingEdit || uploading} className="w-full sm:w-auto px-6 py-3.5 sm:py-3 bg-brand-600 text-white rounded-xl font-bold hover:bg-brand-700 active:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm min-h-[44px] shadow-sm transition">
                     <Save className="w-4 h-4 shrink-0" />
-                    {savingEdit ? 'Saving...' : 'Save Changes'}
+                    {savingEdit || uploading ? (uploading ? 'Uploading...' : 'Saving...') : 'Save Changes'}
                   </button>
 
                 </div>
@@ -937,7 +1162,7 @@ export default function AdminMenuPage() {
             {/* HEADER */}
             <div className="flex items-center justify-between border-b border-gray-100 pb-3 sticky top-0 bg-white z-10 -mx-4 sm:-mx-6 px-4 sm:px-6 -mt-4 sm:-mt-6 pt-4 sm:pt-6">
               <h2 className="text-lg sm:text-xl font-bold text-gray-900 leading-tight">Add New Food Item</h2>
-              <button onClick={() => setShowAddModal(false)} className="shrink-0 p-2.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition min-w-[44px] min-h-[44px] flex items-center justify-center" aria-label="Close">
+              <button onClick={() => { if (newImagePreview && newImagePreview.startsWith('blob:')) URL.revokeObjectURL(newImagePreview); setNewImageFile(null); setNewImagePreview(null); setShowAddModal(false); }} className="shrink-0 p-2.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition min-w-[44px] min-h-[44px] flex items-center justify-center" aria-label="Close">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -959,6 +1184,38 @@ export default function AdminMenuPage() {
               <div className="min-w-0">
                 <label className="block font-bold text-gray-700 mb-1 text-xs sm:text-sm">Description</label>
                 <input type="text" value={newItem.description} onChange={(e) => setNewItem({ ...newItem, description: e.target.value, })} placeholder="Short summary of food dish" className="w-full min-w-0 px-3 py-3 sm:py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+
+              {/* FOOD IMAGE - Add with preview */}
+              <div className="min-w-0">
+                <label className="block font-bold text-gray-700 mb-1 text-xs sm:text-sm">Food Image</label>
+                <div className="relative">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleNewImageChange}
+                    className="block w-full text-xs sm:text-sm text-gray-500 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-brand-600 file:text-white hover:file:bg-brand-700 file:transition file:cursor-pointer cursor-pointer bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 file:min-h-[36px]"
+                  />
+                </div>
+                {newImagePreview ? (
+                  <div className="mt-3 relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50 p-2">
+                    <img src={newImagePreview} alt="Preview" className="w-full h-40 sm:h-48 object-contain rounded-lg bg-white" />
+                    <button
+                      type="button"
+                      onClick={clearNewImage}
+                      className="absolute top-3 right-3 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition shadow"
+                      title="Remove image"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                    <p className="text-[11px] text-gray-500 mt-1.5 text-center truncate px-2">{newImageFile?.name}</p>
+                  </div>
+                ) : (
+                  <div className="mt-2 flex items-center gap-2 text-xs text-gray-400">
+                    <ImageIcon className="w-4 h-4 shrink-0" />
+                    <span>No image selected. Preview will appear here.</span>
+                  </div>
+                )}
               </div>
 
               {/* CATEGORY & DIET */}
@@ -1049,11 +1306,11 @@ export default function AdminMenuPage() {
 
               {/* BUTTONS - stack on mobile */}
               <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 pt-4 border-t border-gray-100">
-                <button type="button" onClick={() => setShowAddModal(false)} className="w-full sm:w-auto px-4 py-3.5 sm:py-2 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 text-sm min-h-[44px] transition">
+                <button type="button" onClick={() => { if (newImagePreview && newImagePreview.startsWith('blob:')) URL.revokeObjectURL(newImagePreview); setNewImageFile(null); setNewImagePreview(null); setShowAddModal(false); }} className="w-full sm:w-auto px-4 py-3.5 sm:py-2 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 text-sm min-h-[44px] transition">
                   Cancel
                 </button>
-                <button type="submit" className="w-full sm:w-auto px-6 py-3.5 sm:py-2 bg-brand-600 text-white rounded-xl font-bold hover:bg-brand-700 shadow text-sm min-h-[44px] transition">
-                  Save Food Item
+                <button type="submit" disabled={uploading} className="w-full sm:w-auto px-6 py-3.5 sm:py-2 bg-brand-600 text-white rounded-xl font-bold hover:bg-brand-700 shadow text-sm min-h-[44px] transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                  {uploading ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Uploading...</> : 'Save Food Item'}
                 </button>
               </div>
 
