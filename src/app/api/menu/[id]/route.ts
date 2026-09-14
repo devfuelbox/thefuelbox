@@ -40,11 +40,16 @@ function normalizeImageUrlForStorage(raw: unknown): string | null {
 
 export async function GET(
   _req: Request,
-  { params }: { params: { id: string } }
+  ctx: { params: { id: string } | Promise<{ id: string }> }
 ) {
   try {
+    const params = await ctx.params;
+    const id = params?.id;
+    if (!id) {
+      return NextResponse.json({ message: 'Missing menu id' }, { status: 400 });
+    }
     const { MenuItem } = await getDbModels();
-    const item = await (MenuItem as any).findByPk(params.id);
+    const item = await (MenuItem as any).findByPk(id);
     if (!item) {
       return NextResponse.json({ message: 'Menu item not found' }, { status: 404 });
     }
@@ -57,12 +62,17 @@ export async function GET(
 
 export async function PATCH(
   req: Request,
-  { params }: { params: { id: string } }
+  ctx: { params: { id: string } | Promise<{ id: string }> }
 ) {
   try {
+    const params = await ctx.params;
+    const id = params?.id;
+    if (!id) {
+      return NextResponse.json({ message: 'Missing menu id' }, { status: 400 });
+    }
     const body = await req.json();
     const { MenuItem } = await getDbModels();
-    const item = await (MenuItem as any).findByPk(params.id);
+    const item = await (MenuItem as any).findByPk(id);
     if (!item) {
       return NextResponse.json({ message: 'Menu item not found' }, { status: 404 });
     }
@@ -115,7 +125,7 @@ export async function PATCH(
     }
 
     await item.update(sanitised);
-    const updated = await (MenuItem as any).findByPk(params.id);
+    const updated = await (MenuItem as any).findByPk(id);
     return NextResponse.json(updated);
   } catch (err) {
     console.error('[Menu API] PATCH failed:', err);
@@ -125,16 +135,21 @@ export async function PATCH(
 
 export async function DELETE(
   _req: Request,
-  { params }: { params: { id: string } }
+  ctx: { params: { id: string } | Promise<{ id: string }> }
 ) {
   try {
+    const params = await ctx.params;
+    const id = params?.id;
+    if (!id) {
+      return NextResponse.json({ message: 'Missing menu id' }, { status: 400 });
+    }
     const { MenuItem } = await getDbModels();
-    const item = await (MenuItem as any).findByPk(params.id);
+    const item = await (MenuItem as any).findByPk(id);
     if (!item) {
       return NextResponse.json({ message: 'Menu item not found' }, { status: 404 });
     }
     await item.destroy();
-    return NextResponse.json({ success: true, id: params.id });
+    return NextResponse.json({ success: true, id });
   } catch (err) {
     console.error('[Menu API] DELETE failed:', err);
     return NextResponse.json({ message: 'Failed to delete menu item' }, { status: 500 });

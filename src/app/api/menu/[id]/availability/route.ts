@@ -1,17 +1,20 @@
 import { NextResponse } from 'next/server';
 import { getDbModels } from '@/lib/db';
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, ctx: { params: { id: string } | Promise<{ id: string }> }) {
   try {
+    const params = await ctx.params;
+    const id = params?.id;
     const { is_available } = await req.json();
     const { MenuItem } = await getDbModels();
-    const item = await MenuItem.findByPk(params.id);
+    const item = await (MenuItem as any).findByPk(id);
     if (item) {
-      await item.update({ is_available });
+      await (item as any).update({ is_available });
       return NextResponse.json(item);
     }
   } catch (err) {
-    // fallback response
+    console.error('[Menu API] availability PATCH failed:', err);
   }
-  return NextResponse.json({ success: true, id: params.id });
+  const p = await ctx.params;
+  return NextResponse.json({ success: true, id: p?.id });
 }
