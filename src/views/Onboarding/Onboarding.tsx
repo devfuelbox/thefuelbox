@@ -2976,14 +2976,15 @@ export default function Onboarding() {
         style={{ maxWidth: 440, padding: "0 22px 48px" }}
       >
         <div
-          className="flex items-center justify-between"
+          className="flex items-center justify-center sm:justify-between gap-3"
           style={{ padding: "20px 0 14px" }}
         >
-          <div style={{ display: "flex", alignItems: "center" }}>
+          <div className="flex flex-1 min-w-0 justify-center sm:justify-start items-center" style={{ display: "flex", alignItems: "center", minWidth: 0, flex: "1 1 auto" }}>
             <img
               src="/fuelbox_banner_transparent_2x.png"
               alt="FuelBox"
-              style={{ height: 100, width: "auto", objectFit: "contain" }}
+              className="h-[84px] w-auto max-w-[280px] sm:h-[92px] sm:max-w-[310px] md:h-[100px] md:max-w-[340px] object-contain block shrink-0 max-w-full mx-auto sm:mx-0"
+              style={{ height: "100%", maxWidth: "100%", objectFit: "contain", aspectRatio: "3200 / 966", display: "block" }}
               onError={(e) => {
                 e.currentTarget.style.display = "none";
                 const textEl = e.currentTarget.nextSibling as HTMLDivElement;
@@ -3006,6 +3007,7 @@ export default function Onboarding() {
           {step >= 1 && step <= TOTAL + 1 && (
             <button
               onClick={() => saveStep(step - 1)}
+              className="shrink-0"
               style={{
                 background: "transparent",
                 border: `1px solid ${C.line}`,
@@ -3016,6 +3018,7 @@ export default function Onboarding() {
                 fontWeight: 600,
                 padding: "6px 12px",
                 cursor: "pointer",
+                flexShrink: 0,
               }}
             >
               ← Back

@@ -69,12 +69,18 @@ export default function Footer() {
       <div className="footer-blob-2" />
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8 relative z-10">
         <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-          <div>
-            <img src="/fuelbox_banner_transparent_2x.png" alt="Fuel Box" className="h-8 w-auto object-contain mb-2" onError={(e) => {
-              e.currentTarget.style.display = 'none';
-              const textEl = e.currentTarget.nextSibling as HTMLSpanElement;
-              if (textEl) textEl.style.display = 'inline';
-            }} />
+          <div className="min-w-0 flex flex-col items-center sm:items-start text-center sm:text-left">
+            <img
+              src="/fuelbox_banner_transparent_2x.png"
+              alt="Fuel Box"
+              className="h-12 w-auto max-w-[240px] sm:h-14 sm:max-w-[260px] md:h-14 md:max-w-[260px] object-contain mb-2 block max-w-full shrink-0 mx-auto sm:mx-0"
+              style={{ maxWidth: "100%", objectFit: "contain", aspectRatio: "3200 / 966", display: "block" }}
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+                const textEl = e.currentTarget.nextSibling as HTMLSpanElement;
+                if (textEl) textEl.style.display = 'inline';
+              }}
+            />
             <span className="text-xl font-extrabold font-heading tracking-tight text-brand-600" style={{ display: 'none' }}>
               Fuel Box
             </span>

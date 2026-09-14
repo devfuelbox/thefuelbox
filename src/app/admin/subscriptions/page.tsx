@@ -626,7 +626,6 @@ export default function SubscriptionsPage() {
                 <tr><td colSpan={7} className="py-12 text-center text-gray-400 font-medium">No subscriptions found.</td></tr>
               ) : paginated.map(sub => {
                 const c = sub.customer;
-                console.log(sub.customer,"sub.customer");
                 const planStats = computePlanStats(sub);
                 const progress = sub.duration_days > 0 ? Math.round((planStats.completedDays / sub.duration_days) * 100) : 0;
                 return (

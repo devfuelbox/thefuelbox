@@ -88,7 +88,6 @@ export default function AdminDashboardPage() {
     else setRedirecting(false);
   }, [router]);
   const [recentOrders, setRecentOrders] = useState<CustomerType[]>([]);
-  console.log(recentOrders,"orders")
   const [popularModalOpen, setPopularModalOpen] = useState(false);
   const [allMenuItems, setAllMenuItems] = useState<MenuItemType[]>([]);
   const [selectedPopularIds, setSelectedPopularIds] = useState<Set<number>>(new Set());
@@ -218,7 +217,6 @@ export default function AdminDashboardPage() {
   }
 
   const { summary, goals, frequencies, preferences, slots, salesHistory, popularItems, revenueByType, orderCountByType } = data;
-  console.log(summary,"summary")
 
   const trend = salesHistory.length >= 2
     ? ((salesHistory[salesHistory.length - 1].sales - salesHistory[0].sales) / (salesHistory[0].sales || 1)) * 100
@@ -231,10 +229,6 @@ export default function AdminDashboardPage() {
   const goalLabels: Record<string, string> = {
     loss: 'Weight Loss', gain: 'Weight Gain', muscle: 'Muscle Gain', maintenance: 'Maintenance', other: 'Other'
   };
-
-  console.log(totalGoals,"totalGoals")
-
-
 
   const statCards = [
     {
