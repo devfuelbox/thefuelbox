@@ -89,7 +89,7 @@ const nextConfig = {
             value: [
               "default-src 'self'",
               // Scripts — self + inline (Next.js requires unsafe-inline for hydration)
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://fonts.googleapis.com",
+             "connect-src 'self' https://openrouter.ai https://api.groq.com https://fonts.googleapis.com https://cloudflareinsights.com https://static.cloudflareinsights.com",
               // Styles — self + inline + Google Fonts (kept for fallback)
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               // Fonts — self-hosted via next/font + Google Fonts CDN as fallback
