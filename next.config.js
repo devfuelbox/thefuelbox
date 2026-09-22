@@ -88,8 +88,8 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              // Scripts — self + inline (Next.js requires unsafe-inline for hydration)
-             "connect-src 'self' https://openrouter.ai https://api.groq.com https://fonts.googleapis.com https://cloudflareinsights.com https://static.cloudflareinsights.com",
+                 // Scripts — Next.js + Cloudflare Web Analytics
+              "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
               // Styles — self + inline + Google Fonts (kept for fallback)
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               // Fonts — self-hosted via next/font + Google Fonts CDN as fallback
@@ -97,7 +97,7 @@ const nextConfig = {
               // Images — self + data URIs + common CDNs
               "img-src 'self' data: blob: https:",
               // Connect — self + OpenRouter + Groq AI APIs
-              "connect-src 'self' https://openrouter.ai https://api.groq.com https://fonts.googleapis.com",
+               "connect-src 'self' https://openrouter.ai https://api.groq.com https://fonts.googleapis.com https://cloudflareinsights.com https://static.cloudflareinsights.com",
               // Frame ancestors — deny embedding
               "frame-ancestors 'none'",
               // Media
