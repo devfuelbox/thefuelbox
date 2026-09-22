@@ -110,7 +110,7 @@ export default function RefundPolicy() {
             <p className="mt-2">
               Email: help@fuelbox.in
               <br />
-              Phone: +91 98765 43210
+              Phone: +91 7810029931
               <br />
               Response time: Within 24 hours on weekdays
             </p>

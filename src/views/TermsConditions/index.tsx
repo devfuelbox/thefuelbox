@@ -135,7 +135,7 @@ export default function TermsConditions() {
             <p className="mt-2">
               Email: help@fuelbox.in
               <br />
-              Phone: +91 98765 43210
+              Phone: +91 7810029931
               <br />
               Address: Fuel Box, Coimbatore, Tamil Nadu, India
             </p>
