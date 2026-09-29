@@ -405,74 +405,74 @@ function buildPlan(
   // Dynamic protein pools for variant scrambling
   const nonvegPools: [string, number][][] = [
     [
-      ["chicken", 250],
-      ["egg", 150],
-      ["paneer", 100],
-      ["soya", 40],
+      ["chicken", 190],
+      ["egg", 200],
+      ["paneer", 220],
+      ["soya", 120],
     ],
     [
       ["egg", 200],
-      ["chicken", 200],
-      ["soya", 60],
-      ["paneer", 80],
+      ["chicken", 190],
+      ["soya", 120],
+      ["paneer", 220],
     ],
     [
-      ["paneer", 200],
-      ["chicken", 220],
-      ["egg", 100],
-      ["blackchanna", 120],
+      ["paneer", 220],
+      ["chicken", 190],
+      ["egg", 200],
+      ["blackchanna", 250],
     ],
     [
-      ["chicken", 280],
-      ["soya", 80],
-      ["egg", 150],
-      ["peanut", 35],
+      ["chicken", 190],
+      ["soya", 120],
+      ["egg", 200],
+      ["peanut", 80],
     ],
   ];
   const eggPools: [string, number][][] = [
     [
-      ["egg", 150],
-      ["paneer", 150],
-      ["soya", 60],
-      ["channaW", 150],
+      ["egg", 200],
+      ["paneer", 220],
+      ["soya", 120],
+      ["channaW", 250],
     ],
     [
-      ["soya", 80],
+      ["soya", 120],
       ["egg", 200],
-      ["paneer", 100],
-      ["blackchanna", 140],
+      ["paneer", 220],
+      ["blackchanna", 250],
     ],
     [
       ["paneer", 220],
-      ["egg", 150],
-      ["channaW", 120],
-      ["peanut", 40],
+      ["egg", 200],
+      ["channaW", 250],
+      ["peanut", 80],
     ],
   ];
   const vegPools: [string, number][][] = [
     [
-      ["paneer", 200],
-      ["soya", 100],
-      ["channaW", 150],
-      ["peanut", 30],
+      ["paneer", 220],
+      ["soya", 130],
+      ["channaW", 250],
+      ["peanut", 80],
     ],
     [
-      ["soya", 120],
-      ["paneer", 180],
-      ["blackchanna", 160],
-      ["peanut", 35],
+      ["soya", 130],
+      ["paneer", 220],
+      ["blackchanna", 250],
+      ["peanut", 80],
     ],
     [
-      ["channaW", 200],
-      ["paneer", 160],
-      ["soya", 80],
-      ["peanut", 40],
+      ["channaW", 250],
+      ["paneer", 220],
+      ["soya", 130],
+      ["peanut", 80],
     ],
     [
       ["paneer", 220],
-      ["blackchanna", 180],
-      ["soya", 60],
-      ["peanut", 30],
+      ["blackchanna", 250],
+      ["soya", 130],
+      ["peanut", 80],
     ],
   ];
 
@@ -558,21 +558,47 @@ function buildPlan(
   let sweetG = carbChoice.sweet;
   if (sweetG > 0) add("sweetpotato", sweetG);
 
-  let need =
-    protT -
-    items.reduce((s, it) => s + pOf(ing, it.id, it.g), 0) -
-    pOf(ing, "rice", riceG) -
-    pOf(ing, "chapati", chapG);
+  // Protein sources are filled towards a per-meal quota (daily target ÷ 3) so
+  // each meal lands near its share; a second pass closes any remaining daily
+  // gap when the food data allows it.
+  const pmP = protT / MEAL_ORDER.length;
+  const mealProt: Record<string, number> = {
+    Morning: 0,
+    Afternoon: 0,
+    Night: 0,
+  };
+  items.forEach((it) => {
+    const m = MEAL_OF[it.id] || "Afternoon";
+    mealProt[m] += pOf(ing, it.id, it.g);
+  });
+  mealProt.Afternoon += pOf(ing, "rice", riceG);
+  mealProt.Night += pOf(ing, "chapati", chapG);
 
-  for (const [id, cap] of srcs) {
-    if (need <= 1) break;
-    const step = ing[id].unit || 10;
-    let g = Math.min(cap as number, Math.ceil((need / ing[id].p) * 100));
-    g = Math.round(g / step) * step;
-    if (g <= 0) continue;
-    add(id, g);
-    need -= pOf(ing, id, g);
-  }
+  let need = protT - Object.values(mealProt).reduce((s, p) => s + p, 0);
+  const srcLeft = srcs.map(([id, cap]) => ({ id, cap, used: 0 }));
+
+  const fillProtein = (respectQuota: boolean) => {
+    for (const src of srcLeft) {
+      if (need <= 1) return;
+      const avail = src.cap - src.used;
+      if (avail <= 0) continue;
+      const m = MEAL_OF[src.id] || "Afternoon";
+      const target = respectQuota ? Math.min(need, pmP - mealProt[m]) : need;
+      if (target <= 1) continue;
+      const step = ing[src.id].unit || 10;
+      let g = Math.min(avail, Math.ceil((target / ing[src.id].p) * 100));
+      g = Math.round(g / step) * step;
+      if (g <= 0) continue;
+      g = Math.min(g, avail);
+      add(src.id, g);
+      src.used += g;
+      const p = pOf(ing, src.id, g);
+      need -= p;
+      mealProt[m] += p;
+    }
+  };
+  fillProtein(true);
+  fillProtein(false);
 
   const caps =
     goal === "loss"
@@ -1034,6 +1060,10 @@ function Result({
     Math.round(
       m.items.reduce((s: number, it: any) => s + kOf(ing, it.id, it.g), 0),
     );
+  const protOfMeal = (m: any) =>
+    Math.round(
+      m.items.reduce((s: number, it: any) => s + pOf(ing, it.id, it.g), 0),
+    );
   const delKcal = cov.delMeals.reduce(
     (s: number, m: any) => s + kcalOfMeal(m),
     0,
@@ -1071,23 +1101,17 @@ function Result({
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
   }, []);
-  const mealLimits = useMemo(() => {
-    const map = new Map<string, number>();
-    plan.meals.forEach((m: any) => {
-      const kcal = Math.round(m.items.reduce((s: number, it: any) => s + kOf(ing, it.id, it.g), 0));
-      const fallback = Math.round(fixedTarget.calories / (cov.delNames.length || 1));
-      map.set(m.name, kcal > 0 ? kcal : fallback);
-    });
-    return map;
-  }, [plan, ing, fixedTarget.calories, cov.delNames]);
-  const getMealLimit = useCallback((mealName: string) => mealLimits.get(mealName) ?? Math.round(fixedTarget.calories / (cov.delNames.length || 1)), [mealLimits, fixedTarget.calories, cov.delNames]);
+  // Each meal gets an equal share of the daily target (daily ÷ 3), so the
+  // targets scale with the user's numbers — not with what the plan happens to
+  // contain.
+  const perMealKcal = Math.round(fixedTarget.calories / MEAL_ORDER.length);
+  const perMealProtein = Math.round(fixedTarget.protein / MEAL_ORDER.length);
   const canAddToMeal = useCallback((mealName: string, itemId: string) => {
-    const limit = getMealLimit(mealName);
     const meal = planToUse.meals.find((m: any) => m.name === mealName);
     const current = meal ? Math.round(meal.items.reduce((s: number, it: any) => s + kOf(ing, it.id, it.g), 0)) : 0;
     const foodKcal = Math.round(kOf(ing, itemId, (ing[itemId] as any)?.unit || 50));
-    return current + foodKcal <= limit;
-  }, [planToUse.meals, ing, getMealLimit]);
+    return current + foodKcal <= perMealKcal;
+  }, [planToUse.meals, ing, perMealKcal]);
 
   const bmiLine = () => {
     const b = metrics.bmi.toFixed(1);
@@ -1170,11 +1194,10 @@ function Result({
       showToast("Food already added");
       return;
     }
-    const limit = getMealLimit(targetMeal);
     const current = targetMealObj ? Math.round(targetMealObj.items.reduce((s: number, it: any) => s + kOf(ing, it.id, it.g), 0)) : 0;
     const foodKcal = Math.round(kOf(ing, itemId, defaultQty));
-    if (current + foodKcal > limit) {
-      showToast(`Calorie limit reached — You can only add food up to ${limit} kcal for this meal.`);
+    if (current + foodKcal > perMealKcal) {
+      showToast(`Calorie limit reached — You can only add food up to ${perMealKcal} kcal for this meal.`);
       return;
     }
     const updatedMeals = planToUse.meals.map((m: any) => {
@@ -1256,15 +1279,6 @@ function Result({
           meal_plan_packages: packages,
         }),
       });
-      if (res.ok) {
-        // Order successfully saved — clear the persisted onboarding session so
-        // the next visit starts with a fresh, empty form for a new customer.
-        try {
-          localStorage.removeItem("fuelbox_onboarding_session_id");
-          localStorage.removeItem("fuelbox_onboarding_step");
-          localStorage.removeItem("fuelbox_onboarding_answers");
-        } catch (_) {}
-      }
     } catch (err: any) {
       console.error("[Order] Failed to save customer to DB:", err);
       // Non-blocking — still open WhatsApp even if DB write fails
@@ -1410,6 +1424,8 @@ function Result({
           FuelBox delivers <b style={{ color: C.yolk }}>{cov.delProt}g</b>{" "}
           protein · <b style={{ color: C.yolk }}>~{delKcal} kcal</b> of your{" "}
           {planToUse.protT}g / ~{planToUse.kcalT} kcal day
+          {" "}
+          · ≈{perMealKcal} kcal / {perMealProtein}g protein per meal
           {cov.selfMeals.length > 0 &&
             ` · ${cov.selfMeals.map((m: any) => m.name).join(" + ")} from your side (list on WhatsApp)`}
         </div>
@@ -1513,7 +1529,7 @@ function Result({
               <div style={{ fontSize: 10, color: C.muted }}>{fixedTarget.fiber}g Fiber</div>
             </div>
           </div>
-          <div style={{ fontSize: 11, color: C.muted, marginTop: 8, lineHeight: 1.4 }}>These values stay fixed. Adding or removing foods does not change your target.</div>
+          <div style={{ fontSize: 11, color: C.muted, marginTop: 8, lineHeight: 1.4 }}>These values stay fixed. Adding or removing foods does not change your target. Each meal targets ≈{perMealKcal} kcal · {perMealProtein}g protein (day ÷ {MEAL_ORDER.length}).</div>
         </div>
 
         <div style={{ background: C.card, border: `1px solid ${C.yolk}20`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
@@ -1591,22 +1607,23 @@ function Result({
                   {mine ? "🟨 " : ""}{m.name}{mine ? " — FuelBox" : " — your side"}
                 </span>
                 <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: mine ? C.yolk : C.muted }}>
-                  {(() => { const cur = kcalOfMeal(m); const lim = getMealLimit(m.name); return `${cur} / ${lim} kcal`; })()}
+                  {kcalOfMeal(m)} / {perMealKcal} kcal · {protOfMeal(m)} / {perMealProtein}g P
                 </span>
               </div>
               {mine && (() => {
                 const cur = kcalOfMeal(m);
-                const lim = getMealLimit(m.name);
+                const lim = perMealKcal;
                 const pct = lim > 0 ? Math.min(100, Math.round((cur / lim) * 100)) : 0;
-                const isFull = cur >= lim;
+                const over = cur > lim * 1.05;
+                const atLimit = cur >= lim;
                 return (
                   <div style={{ marginBottom: 8 }}>
                     <div style={{ height: 6, background: C.line, borderRadius: 6, overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${pct}%`, background: isFull && cur === lim ? C.yolk : isFull ? C.nonveg : C.yolk, borderRadius: 6, transition: "width 300ms" }} />
+                      <div style={{ height: "100%", width: `${pct}%`, background: over ? C.nonveg : C.yolk, borderRadius: 6, transition: "width 300ms" }} />
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.muted, marginTop: 4, fontWeight: 600, gap: 8 }}>
                       <span>{pct}%</span>
-                      <span style={{ color: isFull && cur === lim ? C.yolk : isFull ? C.nonveg : C.muted, fontWeight: 700 }}>{isFull && cur === lim ? `${m.name} calorie limit reached` : isFull ? "Limit exceeded" : `${lim - cur} kcal left`}</span>
+                      <span style={{ color: over ? C.nonveg : C.muted, fontWeight: 700 }}>{over ? "Limit exceeded" : atLimit ? `${m.name} calorie limit reached` : `${lim - cur} kcal left`}</span>
                     </div>
                   </div>
                 );
@@ -1670,7 +1687,7 @@ function Result({
                     }}
                   >
                     <option value="" disabled>
-                      + Add food to {m.name} — {kcalOfMeal(m)}/{getMealLimit(m.name)} kcal
+                      + Add food to {m.name} — {kcalOfMeal(m)}/{perMealKcal} kcal
                     </option>
                     {Object.entries(ing)
                       .filter(([id]) => !m.items.some((it: any) => it.id === id))
@@ -1692,7 +1709,7 @@ function Result({
                   <div style={{ fontSize: 10, color: C.muted, marginTop: 6, lineHeight: 1.4 }}>
                     {(() => {
                       const cur = kcalOfMeal(m);
-                      const lim = getMealLimit(m.name);
+                      const lim = perMealKcal;
                       const rem = lim - cur;
                       return rem <= 0 ? `${m.name} limit reached (${lim} kcal)` : `${rem} kcal remaining in ${m.name}`;
                     })()}
@@ -1966,16 +1983,8 @@ export default function Onboarding() {
         goalParam === "muscle" ||
         goalParam === "maintenance"
       ) {
-        setA((prev) => {
-          const updated = { ...prev, goal: goalParam as any };
-          localStorage.setItem(
-            "fuelbox_onboarding_answers",
-            JSON.stringify(updated),
-          );
-          return updated;
-        });
+        setA((prev) => ({ ...prev, goal: goalParam as any }));
         setStep(1);
-        localStorage.setItem("fuelbox_onboarding_step", "1");
         // Clear query parameters from URL
         window.history.replaceState(
           {},
@@ -2038,31 +2047,14 @@ export default function Onboarding() {
     loadDbFoods();
   }, []);
 
-  // Load session from localStorage on mount
+  // Onboarding always starts fresh: any in-progress state left behind by an
+  // earlier build (or a previous visit) is purged on mount. Only the final,
+  // explicitly-required handoff keys are ever written (see handleFinalize).
   useEffect(() => {
     try {
-      const savedSession = localStorage.getItem(
-        "fuelbox_onboarding_session_id",
-      );
-      const savedStep = localStorage.getItem("fuelbox_onboarding_step");
-      const savedAnswers = localStorage.getItem("fuelbox_onboarding_answers");
-
-      if (savedSession) {
-        setSessionId(savedSession);
-      }
-      if (savedStep) {
-        setStep(Number(savedStep));
-      }
-      if (savedAnswers) {
-        const parsed = JSON.parse(savedAnswers);
-        if (parsed && typeof parsed === "object") {
-          setA((prev) => ({
-            ...prev,
-            ...parsed,
-            preferredSlots: parsed.preferredSlots || prev.preferredSlots || [],
-          }));
-        }
-      }
+      localStorage.removeItem("fuelbox_onboarding_session_id");
+      localStorage.removeItem("fuelbox_onboarding_step");
+      localStorage.removeItem("fuelbox_onboarding_answers");
     } catch (_) {}
   }, []);
 
@@ -2077,9 +2069,6 @@ export default function Onboarding() {
           ? crypto.randomUUID()
           : Math.random().toString(36).substring(2) + Date.now().toString(36);
       setSessionId(curSessionId);
-      try {
-        localStorage.setItem("fuelbox_onboarding_session_id", curSessionId);
-      } catch (_) {}
 
       // Fire-and-forget insert if configured
       if (onboardingSupabase?.from) {
@@ -2104,13 +2093,6 @@ export default function Onboarding() {
     }
 
     setStep(nextStep);
-    try {
-      localStorage.setItem("fuelbox_onboarding_step", String(nextStep));
-      localStorage.setItem(
-        "fuelbox_onboarding_answers",
-        JSON.stringify(updatedAnswers),
-      );
-    } catch (_) {}
 
     // Update in new DB if configured — log result for verification
     if (onboardingSupabase?.from) {
@@ -2229,12 +2211,6 @@ export default function Onboarding() {
           "fuelbox_onboarding_answers_final",
           JSON.stringify(a),
         );
-      } catch (_) {}
-
-      // Preserve progress keys but set step to 9 so reload restores results screen
-      try {
-        localStorage.setItem("fuelbox_onboarding_step", "9");
-        localStorage.setItem("fuelbox_onboarding_answers", JSON.stringify(a));
       } catch (_) {}
 
       // Show the results / meal plan screen

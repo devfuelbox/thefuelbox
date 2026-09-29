@@ -264,6 +264,7 @@ export default function AdminMenuPage() {
     setEditingItem({
       ...item,
       price_unit: item.price_unit || 'piece',
+      cookable: !!item.cookable,
       calories: item.calories ?? 0,
       protein_g: item.protein_g ?? 0,
       carbs_g: item.carbs_g ?? 0,
@@ -304,6 +305,7 @@ export default function AdminMenuPage() {
           editingItem.price_unit || 'piece',
         is_available:
           editingItem.is_available,
+        cookable: !!editingItem.cookable,
         calories: Number(editingItem.calories) || 0,
         protein_g: Number(editingItem.protein_g) || 0,
         carbs_g: Number(editingItem.carbs_g) || 0,
@@ -351,6 +353,8 @@ export default function AdminMenuPage() {
                   'piece',
                 is_available:
                   editingItem.is_available,
+                cookable:
+                  !!editingItem.cookable,
                 calories: Number(editingItem.calories) || 0,
                 protein_g: Number(editingItem.protein_g) || 0,
                 carbs_g: Number(editingItem.carbs_g) || 0,
@@ -1118,6 +1122,53 @@ export default function AdminMenuPage() {
 
                 </div>
 
+                {/* COOKABLE */}
+                <div>
+
+                  <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-2">
+                    Cookable
+                  </label>
+
+                  <div className="grid grid-cols-2 gap-2 sm:gap-3">
+
+                    {/* YES */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditingItem({
+                          ...editingItem,
+                          cookable: true,
+                        })
+                      }
+                      className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${editingItem.cookable ? 'border-energy-500 bg-energy-50 text-energy-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 active:bg-gray-50'}`}
+                    >
+                      <ChefHat className="w-4 h-4 shrink-0" />
+                      <span className="truncate">Yes (+Rs.5)</span>
+                    </button>
+
+                    {/* NO */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditingItem({
+                          ...editingItem,
+                          cookable: false,
+                        })
+                      }
+                      className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${!editingItem.cookable ? 'border-gray-400 bg-gray-100 text-gray-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 active:bg-gray-50'}`}
+                    >
+                      <X className="w-4 h-4 shrink-0" />
+                      <span className="truncate">No</span>
+                    </button>
+
+                  </div>
+
+                  <p className="text-[11px] text-gray-400 mt-1.5">
+                    Cookable items get a +Rs.5 cooking surcharge.
+                  </p>
+
+                </div>
+
                 {/* ACTION BUTTONS - stack on mobile */}
                 <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 pt-4 border-t border-gray-100">
 
@@ -1287,9 +1338,19 @@ export default function AdminMenuPage() {
               </div>
 
               {/* COOKABLE */}
-              <div className="flex items-center gap-3 pt-2">
-                <input type="checkbox" id="cookableCheck" checked={newItem.cookable} onChange={(e) => setNewItem({ ...newItem, cookable: e.target.checked, })} className="w-4 h-4 text-brand-600 rounded shrink-0" />
-                <label htmlFor="cookableCheck" className="font-bold text-gray-700 text-xs sm:text-sm leading-tight">Requires Cooking (+Rs.5 Surcharge)</label>
+              <div>
+                <label className="block font-bold text-gray-700 mb-2 text-xs sm:text-sm">Cookable</label>
+                <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                  <button type="button" onClick={() => setNewItem({ ...newItem, cookable: true, })} className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${newItem.cookable ? 'border-energy-500 bg-energy-50 text-energy-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}>
+                    <ChefHat className="w-4 h-4 shrink-0" />
+                    <span className="truncate">Yes (+Rs.5)</span>
+                  </button>
+                  <button type="button" onClick={() => setNewItem({ ...newItem, cookable: false, })} className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${!newItem.cookable ? 'border-gray-400 bg-gray-100 text-gray-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}>
+                    <X className="w-4 h-4 shrink-0" />
+                    <span className="truncate">No</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1.5">Cookable items get a +Rs.5 cooking surcharge.</p>
               </div>
 
               {/* BUTTONS - stack on mobile */}
