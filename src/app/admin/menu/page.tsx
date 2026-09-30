@@ -511,15 +511,13 @@ export default function AdminMenuPage() {
     }
 
     try {
-      // If you have a DELETE API, use this:
-      //
-      // const res = await fetch(`/api/menu/${id}`, {
-      //   method: 'DELETE',
-      // });
-      //
-      // if (!res.ok) {
-      //   throw new Error('Failed to delete item');
-      // }
+      const res = await fetch(`/api/menu/${id}`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to delete item');
+      }
 
       setItems((prevItems) =>
         prevItems.filter(
