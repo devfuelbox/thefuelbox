@@ -4,8 +4,9 @@ import { motion } from 'framer-motion';
 import { Button, Card, Badge, Spinner } from '@/components/ui';
 import { ROUTES } from '@/lib/constants';
 import { useCartStore } from '@/store/cartStore';
-import { useAuthStore } from '@/store/authStore';
+import { useAuth } from '@/hooks/useAuth';
 import { analyzeCartSuitabilityAI, type CartSuitabilityResult } from '@/lib/ai-service';
+import { fetchUserSubscription } from '@/lib/api';
 import { getProfile, defaultDailyTargets } from '@/lib/profile';
 import { storage } from '@/lib/storage';
 import type { Goal, Gender } from '@/lib/profile';
@@ -136,11 +137,34 @@ function TagBadge({ tag }: { tag: string }) {
 /* ─── Main Summary Page ─── */
 export default function Summary() {
   const { items, totalPrice } = useCartStore();
-  const { user } = useAuthStore();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [result, setResult] = useState<CartSuitabilityResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [animateIn, setAnimateIn] = useState(false);
+  const [mealsPerDay, setMealsPerDay] = useState(3);
+
+  // Load meals per day from the user's plan (defaults to 3)
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (!user?.id) {
+        setMealsPerDay(3);
+        return;
+      }
+      try {
+        const sub = await fetchUserSubscription(user.id);
+        const m = Number(sub?.meals_per_day ?? sub?.plan?.meals_per_day);
+        if (!cancelled) {
+          setMealsPerDay(Number.isFinite(m) && m >= 1 && m <= 6 ? Math.round(m) : 3);
+        }
+      } catch {
+        if (!cancelled) setMealsPerDay(3);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [user]);
 
   // Build user profile from auth store or fallback
   const userProfile = useMemo(() => {
@@ -214,7 +238,7 @@ export default function Summary() {
     // Caching based on cart items & user profile so it does not reload/change on refresh
     const cartKey = items.map(ci => `${ci.menuItem.id}:${ci.quantity}`).sort().join(',');
     const profileKey = `${userProfile.goal}:${userProfile.age}:${userProfile.weightKg}:${userProfile.heightCm}:${userProfile.dietType || ''}`;
-    const targetKey = `${targets.calories}:${targets.protein}:${targets.carbs}:${targets.fat}:${targets.fiber || ''}`;
+    const targetKey = `${targets.calories}:${targets.protein}:${targets.carbs}:${targets.fat}:${targets.fiber || ''}:meals${mealsPerDay}`;
     const cacheKey = `summary_cache_${user?.id || 'guest'}_${cartKey}_${profileKey}_${targetKey}`;
 
     const cached = localStorage.getItem(cacheKey);
@@ -230,7 +254,7 @@ export default function Summary() {
     }
 
     setLoading(true);
-    analyzeCartSuitabilityAI({ items: cartItems, userProfile, targets })
+    analyzeCartSuitabilityAI({ items: cartItems, userProfile, targets, mealsPerDay })
       .then(res => {
         localStorage.setItem(cacheKey, JSON.stringify(res));
         setResult(res);
@@ -238,7 +262,7 @@ export default function Summary() {
         setTimeout(() => setAnimateIn(true), 100);
       })
       .catch(() => setLoading(false));
-  }, [items, userProfile, targets, user]);
+  }, [items, userProfile, targets, user, mealsPerDay]);
 
   // Empty cart
   if (!loading && items.length === 0) {
@@ -351,7 +375,10 @@ export default function Summary() {
           className="mt-6"
         >
           <Card className="p-6 shadow-lg border-0">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">📊 Nutrition vs. Your Per-Meal Targets</h3>
+            <h3 className="text-lg font-bold text-gray-900 mb-1">📊 Nutrition vs. Your {mealsPerDay}-Meal Target</h3>
+            <p className="text-xs text-gray-500 mb-4">
+              Daily goal {targets.calories.toLocaleString()} kcal · {targets.protein}g protein — each FuelBox meal targets ≈{Math.round(targets.calories / 3)} kcal · {Math.round(targets.protein / 3)}g protein (day ÷ 3), so your {mealsPerDay} meal{mealsPerDay > 1 ? 's' : ''}/day order should total ≈{(Math.round((targets.calories / 3) * mealsPerDay)).toLocaleString()} kcal · {Math.round((targets.protein / 3) * mealsPerDay)}g protein.
+            </p>
             <div className="space-y-4">
               <MacroBar label="Calories" total={macroBreakdown.calories.total} target={macroBreakdown.calories.target} pct={macroBreakdown.calories.pct} icon="🔥" color="bg-brand-500" />
               <MacroBar label="Protein" total={macroBreakdown.protein.total} target={macroBreakdown.protein.target} pct={macroBreakdown.protein.pct} icon="💪" color="bg-purple-500" />

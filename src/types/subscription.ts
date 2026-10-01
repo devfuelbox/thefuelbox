@@ -24,6 +24,7 @@ export interface UserSubscription {
   end_date: string
   status: 'active' | 'paused' | 'pending' | 'cancelled' | 'expired'
   auto_renew: boolean
+  meals_per_day?: number | null
   hist_plan_id?: HistPlanEntry[]
   menu_chosen?: MenuChosenEntry[]
 }

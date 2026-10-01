@@ -283,6 +283,30 @@ const BASE_ING: Record<string, IngredientData> = {
   },
 };
 
+// DB menu names are looser than BASE_ING labels ("Chicken Breast" vs
+// "Chicken Breast (cooked)"), so fall back to a normalized comparison:
+// lowercase, parentheticals and punctuation stripped.
+const normFoodName = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+const findBaseKey = (name: string): string | undefined => {
+  const keys = Object.keys(BASE_ING);
+  const exact = name.trim().toLowerCase();
+  return (
+    keys.find((k) => BASE_ING[k].n.toLowerCase() === exact) ||
+    keys.find((k) => normFoodName(BASE_ING[k].n) === normFoodName(name))
+  );
+};
+
+// Cycles a list so index `start` comes first — used to rotate food picks
+// per plan variant.
+const rotate = <T,>(arr: T[], start: number): T[] =>
+  arr.map((_, i) => arr[(start + i) % arr.length]);
+
 const kOf = (ing: Record<string, IngredientData>, id: string, g: number) =>
   (ing[id]?.k * g) / 100 || 0;
 const pOf = (ing: Record<string, IngredientData>, id: string, g: number) =>
@@ -296,55 +320,6 @@ const fiOf = (ing: Record<string, IngredientData>, id: string, g: number) =>
 const costOf = (ing: Record<string, IngredientData>, id: string, g: number) =>
   (ing[id]?.price * g) / 100 || 0;
 
-const MEAL_OF: Record<string, string> = {
-  egg: "Morning",
-  papaya: "Morning",
-  soya: "Morning",
-  banana: "Morning",
-  guava: "Morning",
-  apple: "Morning",
-  orange: "Morning",
-  watermelon: "Morning",
-  dragonfruit: "Morning",
-  mango: "Morning",
-  grapes: "Morning",
-  strawberry: "Morning",
-  cherry: "Morning",
-  bananaReg: "Morning",
-  bananaNendran: "Morning",
-  bananaRed: "Morning",
-  bananaRasthali: "Morning",
-  bananaPoovan: "Morning",
-  rice: "Afternoon",
-  chicken: "Afternoon",
-  channaW: "Afternoon",
-  broccoli: "Afternoon",
-  cucumber: "Afternoon",
-  sweetpotato: "Afternoon",
-  blackchanna: "Afternoon",
-  chickpeas: "Afternoon",
-  cabbage: "Afternoon",
-  lettuce: "Afternoon",
-  channaOnions: "Afternoon",
-  onion: "Afternoon",
-  weightLossCombo1: "Afternoon",
-  weightLossCombo2: "Afternoon",
-  weightLossCombo3: "Afternoon",
-  weightGainCombo1: "Afternoon",
-  weightGainCombo2: "Afternoon",
-  weightGainCombo3: "Afternoon",
-  muscleGainCombo1: "Afternoon",
-  muscleGainCombo2: "Afternoon",
-  muscleGainCombo3: "Afternoon",
-  chapati: "Night",
-  paneer: "Night",
-  carrot: "Night",
-  beetroot: "Night",
-  peanut: "Night",
-  cabbageP: "Night",
-  greenbeans: "Night",
-  paneerDressing: "Night",
-};
 const MEAL_ORDER = ["Morning", "Afternoon", "Night"];
 
 // ─── PLAN LOGIC ──────────────────────────────────────────
@@ -392,247 +367,217 @@ const FREQS = {
   },
 };
 
+// ─── EXACT MEAL SOLVER ───────────────────────────────────
+// Every meal is solved to its own integer share of the daily target (day ÷ 3,
+// remainder spread over the first meals), so any subset of meals sums to the
+// matching share of the day exactly. Each meal mixes one dense protein anchor
+// with one lighter filler: the two unknowns are solved continuously, snapped
+// to a 0.1g grid and nudged on that grid until the meal rounds to its share —
+// no combination lands above or below the target.
+const round1 = (x: number) => Math.round(x * 10) / 10;
+
+const sharesOf = (total: number): number[] => {
+  const base = Math.floor(total / 3);
+  const rem = total - base * 3;
+  return [base + (rem > 0 ? 1 : 0), base + (rem > 1 ? 1 : 0), base];
+};
+
+const densityOf = (ing: Record<string, IngredientData>, id: string) => {
+  const d = ing[id];
+  return d && d.k > 0 ? d.p / d.k : 0;
+};
+
+function fillMeal(
+  ing: Record<string, IngredientData>,
+  fixed: Array<{ id: string; g: number }>,
+  anchors: string[],
+  fillers: Array<[string, number]>,
+  shareK: number,
+  shareP: number,
+): Array<{ id: string; g: number }> {
+  const items = fixed.map((f) => ({ ...f }));
+  const add = (id: string, g: number) => {
+    const gr = round1(g);
+    if (gr <= 0) return;
+    const e = items.find((x) => x.id === id);
+    if (e) e.g = round1(e.g + gr);
+    else items.push({ id, g: gr });
+  };
+  const fixedK = fixed.reduce((s, f) => s + kOf(ing, f.id, f.g), 0);
+  const fixedP = fixed.reduce((s, f) => s + pOf(ing, f.id, f.g), 0);
+  const dK = shareK - fixedK;
+  const dP = shareP - fixedP;
+  if (dK <= 0 || dP <= 0) return items;
+
+  // The anchor must be denser than the meal's remaining protein:calorie ratio
+  // and the filler lighter — that keeps both continuous solutions positive.
+  const ratio = dP / dK;
+  const anchor = anchors.find((id) => ing[id] && densityOf(ing, id) > ratio);
+  if (!anchor) return items;
+
+  const ka = ing[anchor].k / 100;
+  const pa = ing[anchor].p / 100;
+  const sols: Array<{ id: string; ga: number; gf: number; cap: number }> = [];
+  for (const [fid, cap] of fillers) {
+    const fd = ing[fid] ? densityOf(ing, fid) : 0;
+    if (!fd || fid === anchor || !(fd < ratio)) continue;
+    const kf = ing[fid].k / 100;
+    const pf = ing[fid].p / 100;
+    const det = ka * pf - kf * pa;
+    let ga = 0;
+    let gf = 0;
+    if (Math.abs(det) > 1e-9) {
+      ga = (dK * pf - kf * dP) / det;
+      gf = (ka * dP - pa * dK) / det;
+    } else if (pa > 0) {
+      ga = dP / pa;
+    }
+    if (!isFinite(ga) || !isFinite(gf) || ga < 0 || gf < 0) continue;
+    sols.push({ id: fid, ga, gf, cap });
+  }
+  if (!sols.length) {
+    // Degraded menu (no lighter filler): cover the protein gap with the anchor.
+    if (pa > 0) add(anchor, round1(dP / pa));
+    return items;
+  }
+
+  // First filler whose grams stay inside the realistic cap; otherwise the
+  // least over-cap one so a single filler never dominates the plate.
+  const pick =
+    sols.find((s) => s.gf <= s.cap) ??
+    sols.reduce((b, s) => (s.gf / s.cap < b.gf / b.cap ? s : b));
+  const kf = ing[pick.id].k / 100;
+  const pf = ing[pick.id].p / 100;
+
+  // Snap to the 0.1g grid, then nudge until the meal rounds to its share
+  // exactly; among passing grids keep the smallest calorie/protein error.
+  const a0 = round1(pick.ga);
+  const f0 = round1(pick.gf);
+  let bestA = a0;
+  let bestF = f0;
+  let bestScore = Infinity;
+  for (let da = -4; da <= 4; da++) {
+    for (let df = -4; df <= 4; df++) {
+      const ga = Math.max(0, a0 + da / 10);
+      const gf = Math.max(0, f0 + df / 10);
+      const K = fixedK + ka * ga + kf * gf;
+      const P = fixedP + pa * ga + pf * gf;
+      const pass = Math.round(K) === shareK && Math.round(P) === shareP;
+      const eK = K - shareK;
+      const eP = P - shareP;
+      const score = (pass ? 0 : 1e6) + eK * eK + 16 * eP * eP;
+      if (score < bestScore) {
+        bestScore = score;
+        bestA = ga;
+        bestF = gf;
+      }
+    }
+  }
+  add(anchor, bestA);
+  add(pick.id, bestF);
+  return items;
+}
+
 function buildPlan(
   a: OnboardingAnswers,
   variant: number,
   ing: Record<string, IngredientData>,
+  allowed?: Set<string> | null,
 ) {
-  const goal = a.goal || "loss";
+  // Once the DB menu has loaded, only configured menu items may enter the
+  // plan; if the fetch failed, the full static BASE_ING list is the fallback.
+  const ok = (id: string) => !!ing[id] && (!allowed || allowed.has(id));
+  const canChicken = (a.food || "veg") === "nonveg";
+  const canEgg = canChicken || (a.food || "veg") === "egg";
   const metrics = calculateHealthMetrics(a);
   const kcalT = metrics.goalCalories;
   const protT = metrics.proteinG;
 
-  // Dynamic protein pools for variant scrambling
-  const nonvegPools: [string, number][][] = [
-    [
-      ["chicken", 190],
-      ["egg", 200],
-      ["paneer", 220],
-      ["soya", 120],
-    ],
-    [
-      ["egg", 200],
-      ["chicken", 190],
-      ["soya", 120],
-      ["paneer", 220],
-    ],
-    [
-      ["paneer", 220],
-      ["chicken", 190],
-      ["egg", 200],
-      ["blackchanna", 250],
-    ],
-    [
-      ["chicken", 190],
-      ["soya", 120],
-      ["egg", 200],
-      ["peanut", 80],
-    ],
-  ];
-  const eggPools: [string, number][][] = [
-    [
-      ["egg", 200],
-      ["paneer", 220],
-      ["soya", 120],
-      ["channaW", 250],
-    ],
-    [
-      ["soya", 120],
-      ["egg", 200],
-      ["paneer", 220],
-      ["blackchanna", 250],
-    ],
-    [
-      ["paneer", 220],
-      ["egg", 200],
-      ["channaW", 250],
-      ["peanut", 80],
-    ],
-  ];
-  const vegPools: [string, number][][] = [
-    [
-      ["paneer", 220],
-      ["soya", 130],
-      ["channaW", 250],
-      ["peanut", 80],
-    ],
-    [
-      ["soya", 130],
-      ["paneer", 220],
-      ["blackchanna", 250],
-      ["peanut", 80],
-    ],
-    [
-      ["channaW", 250],
-      ["paneer", 220],
-      ["soya", 130],
-      ["peanut", 80],
-    ],
-    [
-      ["paneer", 220],
-      ["blackchanna", 250],
-      ["soya", 130],
-      ["peanut", 80],
-    ],
-  ];
+  // Daily target → integer per-meal shares (remainder on the first meals).
+  const shareK = sharesOf(kcalT);
+  const shareP = sharesOf(protT);
+  const caps =
+    (a.goal || "loss") === "loss"
+      ? { ban: 240, rice: 250, sweet: 180, peanut: 45, paneer: 150 }
+      : { ban: 360, rice: 350, sweet: 260, peanut: 60, paneer: 150 };
 
-  const userFood = a.food || "veg";
-  const poolList =
-    userFood === "nonveg"
-      ? nonvegPools
-      : userFood === "egg"
-        ? eggPools
-        : vegPools;
-  const srcs = poolList[variant % poolList.length];
+  // Dense anchors per meal (rotation gives each variant a different mix);
+  // the fallbacks only matter when the primary foods are off the menu.
+  const fallbackAnchors = [
+    "soya",
+    canChicken ? "chicken" : null,
+    "paneer",
+    "chickpeas",
+    canEgg ? "egg" : null,
+  ].filter((x): x is string => !!x);
+  const anchorsFor = (primary: string[]) =>
+    Array.from(new Set([...primary, ...fallbackAnchors])).filter(ok);
+  const morningAnchors = anchorsFor(
+    canChicken ? rotate(["soya", "chicken"], variant) : ["soya"],
+  );
+  const afternoonAnchors = anchorsFor(
+    canChicken ? rotate(["chicken", "soya"], variant) : ["soya"],
+  );
+  const nightAnchors = anchorsFor(["soya"]);
+
+  const bananaFillers: Array<[string, number]> = [
+    ["banana", caps.ban], ["bananaReg", caps.ban],
+    ["bananaNendran", caps.ban], ["bananaRed", caps.ban],
+  ];
+  const morningFillers = rotate(
+    [...bananaFillers, ["rice", caps.rice], ["sweetpotato", caps.sweet]] as Array<[string, number]>,
+    variant,
+  ).filter(([id]) => ok(id));
+  const carbFillers = rotate(
+    [["rice", caps.rice], ["sweetpotato", caps.sweet]] as Array<[string, number]>,
+    variant,
+  ).filter(([id]) => ok(id));
+  const nightFillers = rotate(
+    [["peanut", caps.peanut], ["rice", caps.rice], ["sweetpotato", caps.sweet], ["paneer", caps.paneer]] as Array<[string, number]>,
+    variant,
+  ).filter(([id]) => ok(id));
+  const sides: Array<[string, number]> = [
+    ["cucumber", 120], ["greenbeans", 120], ["chickpeas", 100],
+  ];
+  const pickSide = (i: number) => rotate(sides, i).find(([id]) => ok(id));
+
+  const fixedMorning: Array<{ id: string; g: number }> = [];
+  if (canEgg && ok("egg")) fixedMorning.push({ id: "egg", g: 50 });
+  if (ok("watermelon")) fixedMorning.push({ id: "watermelon", g: 150 });
+
+  const morning = fillMeal(ing, fixedMorning, morningAnchors, morningFillers, shareK[0], shareP[0]);
+  const sideA = pickSide(variant);
+  const afternoon = fillMeal(
+    ing,
+    sideA ? [{ id: sideA[0], g: sideA[1] }] : [],
+    afternoonAnchors,
+    carbFillers,
+    shareK[1],
+    shareP[1],
+  );
+  const sideN = pickSide(variant + 1);
+  const night = fillMeal(
+    ing,
+    sideN ? [{ id: sideN[0], g: sideN[1] }] : [],
+    nightAnchors,
+    nightFillers,
+    shareK[2],
+    shareP[2],
+  );
+
+  const mealItems = [morning, afternoon, night];
+  const meals = MEAL_ORDER.map((name, i) => ({ name, items: mealItems[i] })).filter(
+    (m) => m.items.length > 0,
+  );
 
   const items: Array<{ id: string; g: number }> = [];
-  const add = (id: string, g: number) => {
-    if (g <= 0) return;
-    const e = items.find((i) => i.id === id);
-    if (e) e.g += g;
-    else items.push({ id, g });
-  };
-
-  // Rotate Veggies based on variant
-  const vegRotations: [string, number][][] = [
-    [
-      ["broccoli", 100],
-      ["carrot", 50],
-      ["beetroot", 50],
-    ],
-    [
-      ["cucumber", 120],
-      ["cabbageP", 80],
-      ["broccoli", 80],
-    ],
-    [
-      ["carrot", 80],
-      ["cucumber", 100],
-      ["beetroot", 60],
-    ],
-    [
-      ["broccoli", 120],
-      ["cabbageP", 60],
-      ["carrot", 60],
-    ],
-  ];
-  const vegSet = vegRotations[variant % vegRotations.length];
-  vegSet.forEach(([vId, vG]) => add(vId as string, vG as number));
-
-  // Rotate Fruits based on variant
-  const fruitRotations: [string, number][] = [
-    goal === "loss" ? ["papaya", 150] : ["banana", 120],
-    goal === "loss" ? ["apple", 140] : ["orange", 150],
-    goal === "loss" ? ["watermelon", 180] : ["banana", 150],
-    goal === "loss" ? ["guava", 130] : ["apple", 140],
-  ];
-  const [fId, fG] = fruitRotations[variant % fruitRotations.length];
-  add(fId as string, fG as number);
-
-  // Rotate Carbs based on variant
-  const carbRotations = [
-    {
-      rice: goal === "loss" ? 100 : goal === "gain" ? 250 : 200,
-      chap: goal === "loss" ? 50 : 100,
-      sweet: 0,
-    },
-    {
-      rice: goal === "loss" ? 50 : goal === "gain" ? 180 : 120,
-      chap: goal === "loss" ? 100 : 150,
-      sweet: 0,
-    },
-    {
-      rice: 0,
-      chap: goal === "loss" ? 100 : 200,
-      sweet: goal === "loss" ? 120 : 200,
-    },
-    {
-      rice: goal === "loss" ? 120 : 220,
-      chap: 0,
-      sweet: goal === "loss" ? 100 : 150,
-    },
-  ];
-  const carbChoice = carbRotations[variant % carbRotations.length];
-  let riceG = carbChoice.rice;
-  let chapG = carbChoice.chap;
-  let sweetG = carbChoice.sweet;
-  if (sweetG > 0) add("sweetpotato", sweetG);
-
-  // Protein sources are filled towards a per-meal quota (daily target ÷ 3) so
-  // each meal lands near its share; a second pass closes any remaining daily
-  // gap when the food data allows it.
-  const pmP = protT / MEAL_ORDER.length;
-  const mealProt: Record<string, number> = {
-    Morning: 0,
-    Afternoon: 0,
-    Night: 0,
-  };
-  items.forEach((it) => {
-    const m = MEAL_OF[it.id] || "Afternoon";
-    mealProt[m] += pOf(ing, it.id, it.g);
-  });
-  mealProt.Afternoon += pOf(ing, "rice", riceG);
-  mealProt.Night += pOf(ing, "chapati", chapG);
-
-  let need = protT - Object.values(mealProt).reduce((s, p) => s + p, 0);
-  const srcLeft = srcs.map(([id, cap]) => ({ id, cap, used: 0 }));
-
-  const fillProtein = (respectQuota: boolean) => {
-    for (const src of srcLeft) {
-      if (need <= 1) return;
-      const avail = src.cap - src.used;
-      if (avail <= 0) continue;
-      const m = MEAL_OF[src.id] || "Afternoon";
-      const target = respectQuota ? Math.min(need, pmP - mealProt[m]) : need;
-      if (target <= 1) continue;
-      const step = ing[src.id].unit || 10;
-      let g = Math.min(avail, Math.ceil((target / ing[src.id].p) * 100));
-      g = Math.round(g / step) * step;
-      if (g <= 0) continue;
-      g = Math.min(g, avail);
-      add(src.id, g);
-      src.used += g;
-      const p = pOf(ing, src.id, g);
-      need -= p;
-      mealProt[m] += p;
-    }
-  };
-  fillProtein(true);
-  fillProtein(false);
-
-  const caps =
-    goal === "loss"
-      ? { rice: 250, chap: 100, ban: 240, pea: 30 }
-      : { rice: 350, chap: 200, ban: 360, pea: 60 };
-  let banX = 0,
-    peaX = 0;
-  const total = () =>
-    items.reduce((s, it) => s + kOf(ing, it.id, it.g), 0) +
-    kOf(ing, "rice", riceG) +
-    kOf(ing, "chapati", chapG) +
-    kOf(ing, "banana", banX) +
-    kOf(ing, "peanut", peaX);
-
-  // Two independent guards: tightening down and topping up are separate
-  // passes, so each gets its own iteration budget instead of sharing one.
-  let guard1 = 0;
-  while (total() > kcalT + 80 && guard1++ < 20) {
-    if (riceG > 50) riceG -= 25;
-    else if (chapG > 0) chapG -= 50;
-    else break;
-  }
-  let guard2 = 0;
-  while (total() < kcalT - 120 && guard2++ < 60) {
-    if (riceG < caps.rice) riceG += 25;
-    else if (banX < caps.ban) banX += 60;
-    else if (peaX < caps.pea) peaX += 10;
-    else if (chapG < caps.chap) chapG += 50;
-    else break;
-  }
-  if (riceG > 0) add("rice", riceG);
-  if (chapG > 0) add("chapati", chapG);
-  if (banX > 0) add("banana", banX);
-  if (peaX > 0) add("peanut", peaX);
+  mealItems.forEach((mi) =>
+    mi.forEach((it) => {
+      const e = items.find((x) => x.id === it.id);
+      if (e) e.g = round1(e.g + it.g);
+      else items.push({ ...it });
+    }),
+  );
 
   const protein = Math.round(
     items.reduce((s, it) => s + pOf(ing, it.id, it.g), 0),
@@ -640,12 +585,12 @@ function buildPlan(
   const kcal = Math.round(
     items.reduce((s, it) => s + kOf(ing, it.id, it.g), 0),
   );
-  const meals = MEAL_ORDER.map((m) => ({
-    name: m,
-    items: items.filter((it) => (MEAL_OF[it.id] || "Afternoon") === m),
-  })).filter((m: any) => m.items.length);
+  const mealTargets: Record<string, { kcal: number; protein: number }> = {};
+  MEAL_ORDER.forEach((name, i) => {
+    mealTargets[name] = { kcal: shareK[i], protein: shareP[i] };
+  });
 
-  return { items, meals, protein, kcal, protT, kcalT };
+  return { items, meals, protein, kcal, protT, kcalT, mealTargets };
 }
 
 function coverage(
@@ -699,13 +644,20 @@ function timeline(goal: string | null, freq: number) {
   return { big: `~${w} weeks`, sub: "to visible muscle" };
 }
 
+// Grams are solved on a 0.1g grid; show one decimal only when needed so
+// whole portions stay clean ("150g", "158.2g").
+const fmtG = (g: number) => {
+  const r = Math.round(g * 10) / 10;
+  return Number.isInteger(r) ? `${r}` : r.toFixed(1);
+};
+
 const fmtQty = (ing: Record<string, IngredientData>, it: any) => {
   const d = ing[it.id];
   if (d.unit) {
     const c = Math.round(it.g / d.unit);
-    return `${c} ${d.uname}${c > 1 ? "s" : ""} (${it.g}g)`;
+    return `${c} ${d.uname}${c > 1 ? "s" : ""} (${fmtG(it.g)}g)`;
   }
-  return `${it.g}g`;
+  return `${fmtG(it.g)}g`;
 };
 
 function haversineKm(
@@ -1025,19 +977,21 @@ function Result({
   a,
   loc,
   ing,
+  menuKeys,
   saveStep,
   setLoc,
 }: {
   a: OnboardingAnswers;
   loc: LocState;
   ing: Record<string, IngredientData>;
+  menuKeys: Set<string> | null;
   saveStep: (next: number, updatedAnswers?: OnboardingAnswers) => void;
   setLoc: (loc: LocState) => void;
 }) {
   const navigate = useNavigate();
   const [vary, setVary] = useState(0);
   const [freq, setFreq] = useState(a.freq || 1);
-  const plan = buildPlan(a, vary, ing);
+  const plan = buildPlan(a, vary, ing, menuKeys);
 
   const [customPlan, setCustomPlan] = useState<any>(null);
   const [isOrdering, setIsOrdering] = useState(false);
@@ -1045,7 +999,7 @@ function Result({
 
   useEffect(() => {
     setCustomPlan(plan);
-  }, [vary]);
+  }, [vary, menuKeys]);
 
   const planToUse = customPlan || plan;
   const cov = coverage(planToUse, freq, ing, a.preferredSlots);
@@ -1101,17 +1055,23 @@ function Result({
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
   }, []);
-  // Each meal gets an equal share of the daily target (daily ÷ 3), so the
-  // targets scale with the user's numbers — not with what the plan happens to
-  // contain.
-  const perMealKcal = Math.round(fixedTarget.calories / MEAL_ORDER.length);
-  const perMealProtein = Math.round(fixedTarget.protein / MEAL_ORDER.length);
+  // Each meal's own share of the daily target (daily ÷ 3, remainder split
+  // across the first meals) — the exact number the solver hit, so limits
+  // shown and enforced match the plan to the calorie.
+  const perMealKcalOf = useCallback((mealName: string) => {
+    const t = (planToUse as any).mealTargets?.[mealName];
+    return typeof t?.kcal === "number" ? t.kcal : Math.round(fixedTarget.calories / MEAL_ORDER.length);
+  }, [planToUse, fixedTarget.calories]);
+  const perMealProteinOf = useCallback((mealName: string) => {
+    const t = (planToUse as any).mealTargets?.[mealName];
+    return typeof t?.protein === "number" ? t.protein : Math.round(fixedTarget.protein / MEAL_ORDER.length);
+  }, [planToUse, fixedTarget.protein]);
   const canAddToMeal = useCallback((mealName: string, itemId: string) => {
     const meal = planToUse.meals.find((m: any) => m.name === mealName);
     const current = meal ? Math.round(meal.items.reduce((s: number, it: any) => s + kOf(ing, it.id, it.g), 0)) : 0;
     const foodKcal = Math.round(kOf(ing, itemId, (ing[itemId] as any)?.unit || 50));
-    return current + foodKcal <= perMealKcal;
-  }, [planToUse.meals, ing, perMealKcal]);
+    return current + foodKcal <= perMealKcalOf(mealName);
+  }, [planToUse.meals, ing, perMealKcalOf]);
 
   const bmiLine = () => {
     const b = metrics.bmi.toFixed(1);
@@ -1141,7 +1101,7 @@ function Result({
       `Target: ${planToUse.protT}g protein · ~${planToUse.kcalT} kcal/day\n` +
       `FuelBox covers: ${cov.delProt}g/day (🟨 = FuelBox delivers)\n\n${mealsTxt}\n\n` +
       `Food ₹${cov.price}/day${delivFee != null ? ` + delivery ₹${delivFee}/day` : " + delivery TBD"}\n` +
-      `21-day pack ≈ ₹${(cov.price + (delivFee || 0)) * 21}\n` +
+      `26-day pack ≈ ₹${(cov.price + (delivFee || 0)) * 26}\n` +
       `Timeline: ${tl.big} ${tl.sub}\n${locTxt}\nPhone: ${a.phone}`;
     return `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(msg)}`;
   };
@@ -1196,8 +1156,9 @@ function Result({
     }
     const current = targetMealObj ? Math.round(targetMealObj.items.reduce((s: number, it: any) => s + kOf(ing, it.id, it.g), 0)) : 0;
     const foodKcal = Math.round(kOf(ing, itemId, defaultQty));
-    if (current + foodKcal > perMealKcal) {
-      showToast(`Calorie limit reached — You can only add food up to ${perMealKcal} kcal for this meal.`);
+    const lim = perMealKcalOf(targetMeal);
+    if (current + foodKcal > lim) {
+      showToast(`Calorie limit reached — You can only add food up to ${lim} kcal for this meal.`);
       return;
     }
     const updatedMeals = planToUse.meals.map((m: any) => {
@@ -1251,8 +1212,8 @@ function Result({
       // Save customer + final (possibly customized) plan to DB
       const delivPerDay = delivFee || 0;
       const packages = [
-        { name: "7-day trial", days: 7, price: Math.round((cov.price + delivPerDay) * 7) },
-        { name: "21-day pack", days: 21, price: Math.round((cov.price + delivPerDay) * 21) },
+        { name: "5-day trial", days: 5, price: Math.round((cov.price + delivPerDay) * 5) },
+        { name: "26-day pack", days: 26, price: Math.round((cov.price + delivPerDay) * 26) },
       ];
       const res = await fetch("/api/onboarding/customer", {
         method: "POST",
@@ -1425,7 +1386,7 @@ function Result({
           protein · <b style={{ color: C.yolk }}>~{delKcal} kcal</b> of your{" "}
           {planToUse.protT}g / ~{planToUse.kcalT} kcal day
           {" "}
-          · ≈{perMealKcal} kcal / {perMealProtein}g protein per meal
+          · each meal = day ÷ {MEAL_ORDER.length}, solved exactly to its share
           {cov.selfMeals.length > 0 &&
             ` · ${cov.selfMeals.map((m: any) => m.name).join(" + ")} from your side (list on WhatsApp)`}
         </div>
@@ -1529,7 +1490,7 @@ function Result({
               <div style={{ fontSize: 10, color: C.muted }}>{fixedTarget.fiber}g Fiber</div>
             </div>
           </div>
-          <div style={{ fontSize: 11, color: C.muted, marginTop: 8, lineHeight: 1.4 }}>These values stay fixed. Adding or removing foods does not change your target. Each meal targets ≈{perMealKcal} kcal · {perMealProtein}g protein (day ÷ {MEAL_ORDER.length}).</div>
+          <div style={{ fontSize: 11, color: C.muted, marginTop: 8, lineHeight: 1.4 }}>These values stay fixed. Adding or removing foods does not change your target. Each meal is solved to its exact day ÷ {MEAL_ORDER.length} share (odd remainders split across meals), so the meals you select always hit their combined target exactly.</div>
         </div>
 
         <div style={{ background: C.card, border: `1px solid ${C.yolk}20`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
@@ -1607,23 +1568,23 @@ function Result({
                   {mine ? "🟨 " : ""}{m.name}{mine ? " — FuelBox" : " — your side"}
                 </span>
                 <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: mine ? C.yolk : C.muted }}>
-                  {kcalOfMeal(m)} / {perMealKcal} kcal · {protOfMeal(m)} / {perMealProtein}g P
+                  {kcalOfMeal(m)} / {perMealKcalOf(m.name)} kcal · {protOfMeal(m)} / {perMealProteinOf(m.name)}g P
                 </span>
               </div>
               {mine && (() => {
                 const cur = kcalOfMeal(m);
-                const lim = perMealKcal;
+                const lim = perMealKcalOf(m.name);
                 const pct = lim > 0 ? Math.min(100, Math.round((cur / lim) * 100)) : 0;
-                const over = cur > lim * 1.05;
-                const atLimit = cur >= lim;
+                const over = cur > lim;
+                const onTarget = cur === lim;
                 return (
                   <div style={{ marginBottom: 8 }}>
                     <div style={{ height: 6, background: C.line, borderRadius: 6, overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${pct}%`, background: over ? C.nonveg : C.yolk, borderRadius: 6, transition: "width 300ms" }} />
+                      <div style={{ height: "100%", width: `${pct}%`, background: over ? C.nonveg : onTarget ? C.veg : C.yolk, borderRadius: 6, transition: "width 300ms" }} />
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.muted, marginTop: 4, fontWeight: 600, gap: 8 }}>
                       <span>{pct}%</span>
-                      <span style={{ color: over ? C.nonveg : C.muted, fontWeight: 700 }}>{over ? "Limit exceeded" : atLimit ? `${m.name} calorie limit reached` : `${lim - cur} kcal left`}</span>
+                      <span style={{ color: over ? C.nonveg : onTarget ? C.veg : C.muted, fontWeight: 700 }}>{over ? `${m.name} over target by ${cur - lim} kcal` : onTarget ? `${m.name} on target ✓ (${lim} kcal)` : `${lim - cur} kcal left in ${m.name}`}</span>
                     </div>
                   </div>
                 );
@@ -1687,9 +1648,10 @@ function Result({
                     }}
                   >
                     <option value="" disabled>
-                      + Add food to {m.name} — {kcalOfMeal(m)}/{perMealKcal} kcal
+                      + Add food to {m.name} — {kcalOfMeal(m)}/{perMealKcalOf(m.name)} kcal
                     </option>
                     {Object.entries(ing)
+                      .filter(([id]) => !menuKeys || menuKeys.has(id))
                       .filter(([id]) => !m.items.some((it: any) => it.id === id))
                       .filter(([id, d]) => {
                         if (a.food === "veg" && (d as any).t !== "veg") return false;
@@ -1709,9 +1671,13 @@ function Result({
                   <div style={{ fontSize: 10, color: C.muted, marginTop: 6, lineHeight: 1.4 }}>
                     {(() => {
                       const cur = kcalOfMeal(m);
-                      const lim = perMealKcal;
+                      const lim = perMealKcalOf(m.name);
                       const rem = lim - cur;
-                      return rem <= 0 ? `${m.name} limit reached (${lim} kcal)` : `${rem} kcal remaining in ${m.name}`;
+                      return rem === 0
+                        ? `${m.name} on target ✓ (${lim} kcal, ${perMealProteinOf(m.name)}g P)`
+                        : rem < 0
+                          ? `${m.name} over target by ${Math.abs(rem)} kcal`
+                          : `${rem} kcal remaining in ${m.name}`;
                     })()}
                   </div>
                 </div>
@@ -1763,7 +1729,7 @@ function Result({
               color: C.bone,
             }}
           >
-            7-day trial
+            5-day trial
           </span>
           <span
             style={{
@@ -1773,7 +1739,7 @@ function Result({
               color: C.bone,
             }}
           >
-            ≈ ₹{((cov.price + (delivFee || 0)) * 7).toLocaleString("en-IN")}
+            ≈ ₹{((cov.price + (delivFee || 0)) * 5).toLocaleString("en-IN")}
           </span>
         </div>
         <div className="flex items-center justify-between">
@@ -1785,7 +1751,7 @@ function Result({
               color: C.bone,
             }}
           >
-            21-day pack
+            26-day pack
           </span>
           <span
             style={{
@@ -1795,7 +1761,7 @@ function Result({
               color: C.yolk,
             }}
           >
-            ≈ ₹{((cov.price + (delivFee || 0)) * 21).toLocaleString("en-IN")}
+            ≈ ₹{((cov.price + (delivFee || 0)) * 26).toLocaleString("en-IN")}
           </span>
         </div>
         {planToUse.protein < planToUse.protT - 8 && (
@@ -2001,7 +1967,9 @@ export default function Onboarding() {
   const [ingOverrides, setIngOverrides] = useState<
     Record<string, Partial<IngredientData>>
   >({});
-  const [dbLoaded, setDbLoaded] = useState(false);
+  // BASE_ING keys that correspond to real DB menu items. null means the menu
+  // fetch hasn't succeeded, so the full static BASE_ING list acts as fallback.
+  const [menuKeys, setMenuKeys] = useState<Set<string> | null>(null);
   const ing = useMemo(() => {
     const merged: Record<string, IngredientData> = {};
     for (const key of Object.keys(BASE_ING)) {
@@ -2020,10 +1988,9 @@ export default function Onboarding() {
         if (!data || data.length === 0) return;
 
         const overrides: Record<string, Partial<IngredientData>> = {};
+        const matched: string[] = [];
         data.forEach((row: any) => {
-          const targetKey = Object.keys(BASE_ING).find(
-            (key) => BASE_ING[key].n.toLowerCase() === row.name.toLowerCase(),
-          );
+          const targetKey = findBaseKey(row.name);
           if (targetKey) {
             overrides[targetKey] = {
               k: Number(row.calories ?? BASE_ING[targetKey].k),
@@ -2033,12 +2000,13 @@ export default function Onboarding() {
               fi: Number(row.fiber_g ?? (BASE_ING[targetKey] as any).fi ?? 0),
               price: Number(row.price ?? BASE_ING[targetKey].price),
             };
+            matched.push(targetKey);
           }
         });
 
-        if (Object.keys(overrides).length > 0) {
+        if (matched.length > 0) {
           setIngOverrides(overrides);
-          setDbLoaded(true);
+          setMenuKeys(new Set(matched));
         }
       } catch (err) {
         console.warn("Failed to load menu items from API:", err);
@@ -2914,6 +2882,7 @@ export default function Onboarding() {
             a={a}
             loc={loc}
             ing={ing}
+            menuKeys={menuKeys}
             saveStep={saveStep}
             setLoc={setLoc}
           />

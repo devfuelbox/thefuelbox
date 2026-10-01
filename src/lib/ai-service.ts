@@ -776,7 +776,8 @@ interface CartItemInput {
 function localCartAnalysis(
   items: CartItemInput[],
   userProfile: { age: number; gender: string; goal: string; heightCm: number; weightKg: number; dietType?: string; healthIssues?: string },
-  targets: { calories: number; protein: number; carbs: number; fat: number; fiber?: number }
+  targets: { calories: number; protein: number; carbs: number; fat: number; fiber?: number },
+  mealsPerDay = 3
 ): CartSuitabilityResult {
   // Sum cart totals
   const totals = items.reduce(
@@ -792,41 +793,51 @@ function localCartAnalysis(
 
   const fiberTarget = targets.fiber || 25;
 
+  // The FuelBox plan always splits a day into 3 meal shares (any odd remainder
+  // goes to the earliest meals), so one meal ≈ daily ÷ 3 and an order covering
+  // N meals/day should total ≈ N × that share.
+  const meals = Number.isFinite(mealsPerDay) && mealsPerDay >= 1 ? Math.round(mealsPerDay) : 3;
+  const perMeal = {
+    calories: Math.round(targets.calories / 3),
+    protein: Math.round(targets.protein / 3),
+    carbs: Math.round(targets.carbs / 3),
+    fat: Math.round(targets.fat / 3),
+    fiber: Math.round(fiberTarget / 3),
+  };
+  const orderTargets = {
+    calories: Math.round((targets.calories / 3) * meals),
+    protein: Math.round((targets.protein / 3) * meals),
+    carbs: Math.round((targets.carbs / 3) * meals),
+    fat: Math.round((targets.fat / 3) * meals),
+    fiber: Math.round((fiberTarget / 3) * meals),
+  };
+
   const macroBreakdown = {
-    calories: { total: totals.calories, target: targets.calories, pct: Math.round((totals.calories / targets.calories) * 100) },
-    protein: { total: totals.protein, target: targets.protein, pct: Math.round((totals.protein / targets.protein) * 100) },
-    carbs: { total: totals.carbs, target: targets.carbs, pct: Math.round((totals.carbs / targets.carbs) * 100) },
-    fat: { total: totals.fat, target: targets.fat, pct: Math.round((totals.fat / targets.fat) * 100) },
-    fiber: { total: totals.fiber, target: fiberTarget, pct: Math.round((totals.fiber / fiberTarget) * 100) },
+    calories: { total: totals.calories, target: orderTargets.calories, pct: Math.round((totals.calories / orderTargets.calories) * 100) },
+    protein: { total: totals.protein, target: orderTargets.protein, pct: Math.round((totals.protein / orderTargets.protein) * 100) },
+    carbs: { total: totals.carbs, target: orderTargets.carbs, pct: Math.round((totals.carbs / orderTargets.carbs) * 100) },
+    fat: { total: totals.fat, target: orderTargets.fat, pct: Math.round((totals.fat / orderTargets.fat) * 100) },
+    fiber: { total: totals.fiber, target: orderTargets.fiber, pct: Math.round((totals.fiber / orderTargets.fiber) * 100) },
   };
 
-  // Pre-meal target = Daily Target / 3
-  const mealTargets = {
-    calories: targets.calories / 3,
-    protein: targets.protein / 3,
-    carbs: targets.carbs / 3,
-    fat: targets.fat / 3,
-    fiber: fiberTarget / 3,
-  };
-
-  // Compute individual nutrient scores relative to per-meal targets
+  // Compute individual nutrient scores relative to the order targets
   // Calories score: penalize deviation
-  const calDiff = Math.abs(totals.calories - mealTargets.calories);
-  const calScore = Math.max(0, 100 - (calDiff / mealTargets.calories) * 100);
+  const calDiff = Math.abs(totals.calories - orderTargets.calories);
+  const calScore = Math.max(0, 100 - (calDiff / orderTargets.calories) * 100);
 
   // Protein score: progress toward target (capped at 100)
-  const proScore = Math.min(100, (totals.protein / mealTargets.protein) * 100);
+  const proScore = Math.min(100, (totals.protein / orderTargets.protein) * 100);
 
   // Carb score: penalize deviation
-  const carbDiff = Math.abs(totals.carbs - mealTargets.carbs);
-  const carbScore = Math.max(0, 100 - (carbDiff / mealTargets.carbs) * 100);
+  const carbDiff = Math.abs(totals.carbs - orderTargets.carbs);
+  const carbScore = Math.max(0, 100 - (carbDiff / orderTargets.carbs) * 100);
 
   // Fat score: penalize deviation
-  const fatDiff = Math.abs(totals.fat - mealTargets.fat);
-  const fatScore = Math.max(0, 100 - (fatDiff / mealTargets.fat) * 100);
+  const fatDiff = Math.abs(totals.fat - orderTargets.fat);
+  const fatScore = Math.max(0, 100 - (fatDiff / orderTargets.fat) * 100);
 
   // Fiber score: progress toward target
-  const fibScore = Math.min(100, (totals.fiber / mealTargets.fiber) * 100);
+  const fibScore = Math.min(100, (totals.fiber / orderTargets.fiber) * 100);
 
   // Combine scores using weights:
   // Protein: 35%, Calories: 25%, Fiber: 15%, Carbs: 12.5%, Fat: 12.5%
@@ -858,19 +869,19 @@ function localCartAnalysis(
 
   // Generate math-based strengths, warnings, and recommendations
   if (proScore >= 90) {
-    strengths.push(`Excellent protein: Met ${(totals.protein).toFixed(0)}g (Target: ${mealTargets.protein.toFixed(0)}g).`);
+    strengths.push(`Excellent protein: Met ${(totals.protein).toFixed(0)}g (Target: ${orderTargets.protein.toFixed(0)}g).`);
   } else if (proScore < 60) {
-    warnings.push(`Low protein: ordered ${(totals.protein).toFixed(0)}g is below target (${mealTargets.protein.toFixed(0)}g).`);
-    recommendations.push("Add high-protein items like chicken or paneer to hit your meal goal.");
+    warnings.push(`Low protein: ordered ${(totals.protein).toFixed(0)}g is below target (${orderTargets.protein.toFixed(0)}g).`);
+    recommendations.push("Add high-protein items like chicken or paneer to hit your meal target.");
   }
 
   if (calScore >= 80) {
-    strengths.push(`Perfect energy balance: ${totals.calories.toFixed(0)} kcal matches your per-meal goal.`);
+    strengths.push(`Perfect energy balance: ${totals.calories.toFixed(0)} kcal matches your ${meals}-meal/day target (≈${perMeal.calories} kcal per meal).`);
   } else {
-    if (totals.calories < mealTargets.calories) {
-      recommendations.push("This meal is light. Add healthy snacks if you feel hungry.");
+    if (totals.calories < orderTargets.calories) {
+      recommendations.push("This order is light. Add healthy sides if you feel hungry.");
     } else {
-      warnings.push(`High calories: ${totals.calories.toFixed(0)} kcal exceeds per-meal target (${mealTargets.calories.toFixed(0)} kcal).`);
+      warnings.push(`High calories: ${totals.calories.toFixed(0)} kcal exceeds your ${meals}-meal/day target (${orderTargets.calories.toFixed(0)} kcal).`);
     }
   }
 
@@ -902,7 +913,7 @@ function localCartAnalysis(
     score >= 80 ? "Excellent" : score >= 60 ? "Good" : score >= 40 ? "Fair" : "Poor";
 
   if (recommendations.length === 0 && score >= 70) {
-    recommendations.push("Your meal selection looks balanced against your meal target.");
+    recommendations.push(`Your meal selection looks balanced against your ${meals}-meal/day target.`);
   }
 
   return { score, grade, strengths, warnings, recommendations, macroBreakdown, itemTags };
@@ -912,13 +923,23 @@ export async function analyzeCartSuitabilityAI(args: {
   items: CartItemInput[];
   userProfile: { age: number; gender: string; goal: string; heightCm: number; weightKg: number; dietType?: string; healthIssues?: string };
   targets: { calories: number; protein: number; carbs: number; fat: number; fiber?: number };
+  mealsPerDay?: number;
 }): Promise<CartSuitabilityResult> {
   const { items, userProfile, targets } = args;
+  const mealsPerDay = Number.isFinite(args.mealsPerDay) && (args.mealsPerDay as number) >= 1 ? Math.round(args.mealsPerDay as number) : 3;
 
   // Calculate the score entirely using predefined business logic
-  const local = localCartAnalysis(items, userProfile, targets);
+  const local = localCartAnalysis(items, userProfile, targets, mealsPerDay);
 
   if (!OPENROUTER_API_KEY) return local;
+
+  // One FuelBox meal = daily ÷ 3 share of the day's goal.
+  const perMeal = {
+    calories: Math.round(targets.calories / 3),
+    protein: Math.round(targets.protein / 3),
+    carbs: Math.round(targets.carbs / 3),
+    fat: Math.round(targets.fat / 3),
+  };
 
   const cartSummary = items.map(i => `- ${i.name} x${i.quantity}: ${i.calories * i.quantity}cal, ${i.protein * i.quantity}g protein, ${i.carbs * i.quantity}g carbs, ${i.fat * i.quantity}g fat, ${i.fiber * i.quantity}g fiber (${i.diet})`).join("\n");
 
@@ -933,6 +954,7 @@ Rules for your response:
 2. Your responsibility is to explain these calculated results, highlight strengths and weaknesses of the meals, provide personalized nutrition recommendations, and suggest improvements.
 3. Never assume the user has skipped other meals or that this FuelBox order represents their entire daily diet. This is a single/partial meal order.
 4. Base your analysis on the quality of food choices, nutrient balance, meal diversity, and consistency within the available data.
+5. The FuelBox plan always splits each day into 3 meal shares of the daily goal, so one meal ≈ daily ÷ 3. This order covers ${mealsPerDay} meal(s) per day — compare it against the Order Targets below (${mealsPerDay} × the single-meal share), never against the full daily targets.
 
 User Profile:
 - Age: ${userProfile.age}, Gender: ${userProfile.gender}
@@ -941,8 +963,14 @@ User Profile:
 - Diet: ${userProfile.dietType || "Not specified"}
 - Health Issues: ${userProfile.healthIssues || "None"}
 
-Daily Targets:
+Daily Targets (whole day):
 - Calories: ${targets.calories}, Protein: ${targets.protein}g, Carbs: ${targets.carbs}g, Fat: ${targets.fat}g
+
+Single-Meal Share (daily ÷ 3):
+- Calories: ${perMeal.calories}, Protein: ${perMeal.protein}g, Carbs: ${perMeal.carbs}g, Fat: ${perMeal.fat}g
+
+Order Targets (${mealsPerDay} meal(s)/day ≈ ${mealsPerDay} × single-meal share):
+- Calories: ${local.macroBreakdown.calories.target}, Protein: ${local.macroBreakdown.protein.target}g, Carbs: ${local.macroBreakdown.carbs.target}g, Fat: ${local.macroBreakdown.fat.target}g
 
 Cart Items:
 ${cartSummary}
