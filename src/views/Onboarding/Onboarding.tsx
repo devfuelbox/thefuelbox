@@ -35,257 +35,40 @@ const KITCHEN = { lat: 11.0197, lng: 76.992 }; // Nava India junction, Coimbator
 const FREE_KM = 5;
 const MAX_KM = 30; // beyond this: waitlist
 const FEE_PER_KM = 10; // ₹ per km after 5km
-const MARGIN = 1.4; // cost + 40%
-const PREP_COST = 15; // ₹ per delivered meal: packaging + gas + labor
+const MEAL_CHARGE = 70; // ₹ per selected meal per day
+// Starting portion when the user adds a food by hand. `menu_items` has no
+// portion-size column, so a flat 50 g default is all there is to go on.
+const DEFAULT_ADD_GRAMS = 70;
 
-// ─── INGREDIENTS — nutrients + wholesale ₹/kg ──
-// BASE_ING is the static fallback. Live prices/macros fetched from the DB are
-// layered on top as overrides in component state (see `ing` below) rather
-// than mutated in place, so this object stays a stable, shared reference.
+// ─── FOODS — sourced exclusively from the `menu_items` database table ──
+// There is no static food list and no built-in nutrition or price anywhere in
+// this file. Every field below is read straight off a `menu_items` row. If the
+// table cannot be read, the onboarding reports the error instead of quietly
+// substituting built-in data (see `MenuState`).
 interface IngredientData {
-  n: string;
-  t: "veg" | "egg" | "nonveg";
-  k: number;
-  p: number;
-  c?: number;
-  f?: number;
-  fi?: number;
-  price: number;
-  unit?: number;
-  uname?: string;
+  dbId: number; // menu_items.id
+  n: string; // menu_items.name
+  t: "veg" | "egg" | "nonveg"; // menu_items.diet, normalized
+  k: number; // calories per 100 g
+  p: number; // protein_g per 100 g
+  c: number; // carbs_g per 100 g
+  f: number; // fat_g per 100 g
+  fi: number; // fiber_g per 100 g
+  price: number; // ₹ per 100 g
+  cookable: boolean; // menu_items.cookable — carried for display, never priced
+  category: string; // menu_items.category
 }
 
-const BASE_ING: Record<string, IngredientData> = {
-  chicken: {
-    n: "Chicken Breast (cooked)",
-    t: "nonveg",
-    k: 165,
-    p: 31,
-    c: 0, f: 3.6, fi: 0,
-    price: 28,
-  },
-  egg: { n: "Egg", t: "egg", k: 155, p: 13, price: 10, unit: 50, uname: "egg" },
-  paneer: { n: "Paneer", t: "veg", k: 275, p: 19,
-    c: 2.4, f: 15, fi: 0, price: 25 },
-  soya: { n: "Soya", t: "veg", k: 345, p: 52, price: 20 },
-  chickpeas: { n: "Chickpeas (cooked)", t: "veg", k: 164, p: 8.9,
-    c: 27.4, f: 2.6, fi: 7.6, price: 18 },
-  sweetpotato: {
-    n: "Sweet Potato (boiled)",
-    t: "veg",
-    k: 76,
-    p: 1.4,
-    c: 17.7, f: 0.1, fi: 2.5,
-    price: 15,
-  },
-  banana: {
-    n: "Banana",
-    t: "veg",
-    k: 89,
-    p: 1.1,
-    c: 22.8, f: 0.3, fi: 2.6,
-    price: 10,
-    unit: 120,
-    uname: "pc",
-  },
-  rice: { n: "White Rice (cooked)", t: "veg", k: 130, p: 2.7,
-    c: 28, f: 0.3, fi: 0.4, price: 12 },
-  chapati: {
-    n: "Chapati (whole wheat)",
-    t: "veg",
-    k: 299,
-    p: 7.9,
-    c: 46, f: 9.2, fi: 9.7,
-    price: 8,
-    unit: 50,
-    uname: "pc",
-  },
-  carrot: { n: "Carrot (raw)", t: "veg", k: 41, p: 0.9,
-    c: 9.6, f: 0.2, fi: 2.8, price: 12 },
-  cucumber: { n: "Cucumber (raw)", t: "veg", k: 16, p: 0.7,
-    c: 3.6, f: 0.1, fi: 0.5, price: 10 },
-  greenbeans: { n: "Green Beans (cooked)", t: "veg", k: 35, p: 1.9,
-    c: 7.9, f: 0.3, fi: 3.2, price: 15 },
-  cabbage: { n: "Cabbage (raw)", t: "veg", k: 25, p: 1.3,
-    c: 5.8, f: 0.1, fi: 2.5, price: 10 },
-  cabbageP: { n: "Purple Cabbage (raw)", t: "veg", k: 31, p: 1.4,
-    c: 7.4, f: 0.2, fi: 2.1, price: 14 },
-  lettuce: { n: "Lettuce (raw)", t: "veg", k: 15, p: 1.4,
-    c: 2.9, f: 0.2, fi: 1.3, price: 12 },
-  paneerDressing: {
-    n: "Paneer Cheese Dressing",
-    t: "veg",
-    k: 240,
-    p: 12,
-    c: 5, f: 19.5, fi: 0.2,
-    price: 20,
-  },
-  broccoli: { n: "Broccoli (cooked)", t: "veg", k: 35, p: 2.4,
-    c: 7.2, f: 0.4, fi: 3.3, price: 22 },
-  channaW: { n: "White Channa (cooked)", t: "veg", k: 164, p: 8.9, price: 18 },
-  channaOnions: {
-    n: "Channa with Onions (cooked)",
-    t: "veg",
-    k: 140,
-    p: 7.5,
-    c: 22, f: 2.2, fi: 6.4,
-    price: 20,
-  },
-  dragonfruit: { n: "Dragon Fruit", t: "veg", k: 60, p: 1.2,
-    c: 13, f: 0, fi: 2.9, price: 35 },
-  orange: { n: "Orange", t: "veg", k: 47, p: 0.9,
-    c: 11.8, f: 0.1, fi: 2.4, price: 15 },
-  mango: { n: "Mango", t: "veg", k: 60, p: 0.8,
-    c: 15, f: 0.4, fi: 1.6, price: 25 },
-  apple: { n: "Apple (with skin)", t: "veg", k: 52, p: 0.3,
-    c: 13.8, f: 0.2, fi: 2.4, price: 20 },
-  pomegranate: { n: "Pomegranate", t: "veg", k: 75, p: 1.1,
-    c: 18.7, f: 0.7, fi: 4, price: 30 },
-  guava: { n: "Guava", t: "veg", k: 68, p: 2.6,
-    c: 14.3, f: 1, fi: 5.4, price: 18 },
-  papaya: { n: "Papaya", t: "veg", k: 43, p: 0.5,
-    c: 10.8, f: 0.3, fi: 1.7, price: 16 },
-  watermelon: { n: "Watermelon", t: "veg", k: 30, p: 0.6,
-    c: 7.6, f: 0.2, fi: 0.4, price: 15 },
-  grapes: { n: "Grapes", t: "veg", k: 69, p: 0.7,
-    c: 18.1, f: 0.2, fi: 0.9, price: 22 },
-  strawberry: { n: "Strawberry", t: "veg", k: 32, p: 0.7,
-    c: 7.7, f: 0.3, fi: 2, price: 40 },
-  cherry: { n: "Cherry", t: "veg", k: 50, p: 1.0,
-    c: 12.2, f: 0.3, fi: 1.6, price: 45 },
-  bananaReg: {
-    n: "Regular Banana",
-    t: "veg",
-    k: 89,
-    p: 1.1,
-    c: 22.8, f: 0.3, fi: 2.6,
-    price: 10,
-    unit: 120,
-    uname: "pc",
-  },
-  bananaNendran: {
-    n: "Nendran Banana",
-    t: "veg",
-    k: 95,
-    p: 1.2,
-    c: 24, f: 0.3, fi: 2.6,
-    price: 15,
-    unit: 120,
-    uname: "pc",
-  },
-  bananaRed: {
-    n: "Red Banana",
-    t: "veg",
-    k: 92,
-    p: 1.3,
-    c: 21, f: 0.3, fi: 3,
-    price: 18,
-    unit: 120,
-    uname: "pc",
-  },
-  bananaRasthali: {
-    n: "Rasthali Banana",
-    t: "veg",
-    k: 90,
-    p: 1.1,
-    c: 23.2, f: 0.3, fi: 2.6,
-    price: 12,
-    unit: 120,
-    uname: "pc",
-  },
-  bananaPoovan: {
-    n: "Poovan Banana",
-    t: "veg",
-    k: 104,
-    p: 1.2,
-    c: 26, f: 0.3, fi: 2.6,
-    price: 12,
-    unit: 120,
-    uname: "pc",
-  },
-  blackchanna: {
-    n: "Black Channa (cooked)",
-    t: "veg",
-    k: 130,
-    p: 6.0,
-    c: 21, f: 2, fi: 5.5,
-    price: 16,
-  },
-  onion: { n: "Onion (raw)", t: "veg", k: 40, p: 1.1,
-    c: 9.3, f: 0.1, fi: 1.7, price: 8 },
-  peanut: { n: "Peanut", t: "veg", k: 567, p: 25.8, price: 25 },
-  beetroot: { n: "Beetroot", t: "veg", k: 43, p: 1.6,
-    c: 9.6, f: 0.2, fi: 2.8, price: 14 },
+// How the onboarding may use the menu. `error` means the request failed or the
+// table came back with nothing usable; there is deliberately no `fallback` case.
+type MenuState =
+  | { status: "loading" }
+  | { status: "ready"; rows: number }
+  | { status: "error"; message: string };
 
-  // Combos
-  weightLossCombo1: {
-    n: "Weight Loss - Combo 1",
-    t: "veg",
-    k: 269,
-    p: 10.7,
-    price: 24,
-  },
-  weightLossCombo2: {
-    n: "Weight Loss - Combo 2",
-    t: "veg",
-    k: 212,
-    p: 6.9,
-    price: 41,
-  },
-  weightLossCombo3: {
-    n: "Weight Loss - Combo 3",
-    t: "veg",
-    k: 481,
-    p: 54.1,
-    price: 25,
-  },
-  weightGainCombo1: {
-    n: "Weight Gain - Combo 1",
-    t: "veg",
-    k: 450,
-    p: 53.8,
-    price: 23,
-  },
-  weightGainCombo2: {
-    n: "Weight Gain - Combo 2",
-    t: "veg",
-    k: 203,
-    p: 5.1,
-    price: 32,
-  },
-  weightGainCombo3: {
-    n: "Weight Gain - Combo 3",
-    t: "veg",
-    k: 266,
-    p: 8.1,
-    price: 23,
-  },
-  muscleGainCombo1: {
-    n: "Muscle Gain - Combo 1",
-    t: "veg",
-    k: 248,
-    p: 12.2,
-    price: 23,
-  },
-  muscleGainCombo2: {
-    n: "Muscle Gain - Combo 2",
-    t: "veg",
-    k: 223,
-    p: 7.2,
-    price: 45,
-  },
-  muscleGainCombo3: {
-    n: "Muscle Gain - Combo 3",
-    t: "veg",
-    k: 413,
-    p: 53.8,
-    price: 17,
-  },
-};
-
-// DB menu names are looser than BASE_ING labels ("Chicken Breast" vs
-// "Chicken Breast (cooked)"), so fall back to a normalized comparison:
-// lowercase, parentheticals and punctuation stripped.
+// Menu names carry preparation suffixes ("White Rice (cooked)"), so the map key
+// is the normalized name: lowercase, parentheticals and punctuation stripped.
+// The key therefore comes from `menu_items` too — nothing is invented here.
 const normFoodName = (s: string) =>
   s
     .toLowerCase()
@@ -293,13 +76,38 @@ const normFoodName = (s: string) =>
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 
-const findBaseKey = (name: string): string | undefined => {
-  const keys = Object.keys(BASE_ING);
-  const exact = name.trim().toLowerCase();
-  return (
-    keys.find((k) => BASE_ING[k].n.toLowerCase() === exact) ||
-    keys.find((k) => normFoodName(BASE_ING[k].n) === normFoodName(name))
-  );
+// `menu_items.diet` stores 'veg' / 'non_veg'; normalize to the solver's tags.
+const dietTag = (diet: unknown): IngredientData["t"] => {
+  const d = String(diet ?? "").toLowerCase().replace(/[^a-z]+/g, "");
+  if (d === "egg") return "egg";
+  if (d === "nonveg" || d === "nonvegetarian") return "nonveg";
+  return "veg";
+};
+
+// Builds the food map the solver and the pricing read, straight from DB rows.
+// Rows without a usable name are skipped; every other column is taken as-is.
+const foodsFromRows = (rows: any[]): Record<string, IngredientData> => {
+  const ing: Record<string, IngredientData> = {};
+  for (const row of rows) {
+    const name = String(row?.name ?? "").trim();
+    if (!name) continue;
+    const key = normFoodName(name);
+    if (!key || ing[key]) continue;
+    ing[key] = {
+      dbId: Number(row.id ?? 0),
+      n: name,
+      t: dietTag(row.diet),
+      k: Number(row.calories ?? 0),
+      p: Number(row.protein_g ?? 0),
+      c: Number(row.carbs_g ?? 0),
+      f: Number(row.fat_g ?? 0),
+      fi: Number(row.fiber_g ?? 0),
+      price: Number(row.price ?? 0),
+      cookable: row.cookable === true,
+      category: String(row.category ?? ""),
+    };
+  }
+  return ing;
 };
 
 // Cycles a list so index `start` comes first — used to rotate food picks
@@ -484,8 +292,8 @@ function buildPlan(
   ing: Record<string, IngredientData>,
   allowed?: Set<string> | null,
 ) {
-  // Once the DB menu has loaded, only configured menu items may enter the
-  // plan; if the fetch failed, the full static BASE_ING list is the fallback.
+  // `ing` holds only foods that came back from `menu_items`, so membership is
+  // enough: a food that is not on the menu simply is not there to be picked.
   const ok = (id: string) => !!ing[id] && (!allowed || allowed.has(id));
   const canChicken = (a.food || "veg") === "nonveg";
   const canEgg = canChicken || (a.food || "veg") === "egg";
@@ -503,9 +311,12 @@ function buildPlan(
 
   // Dense anchors per meal (rotation gives each variant a different mix);
   // the fallbacks only matter when the primary foods are off the menu.
+  // The keys below are `menu_items` names run through `normFoodName`, so they are
+  // derived from the DB rather than declared here. This is only the set of foods
+  // the solver prefers — no nutrition or price is written in this file.
   const fallbackAnchors = [
     "soya",
-    canChicken ? "chicken" : null,
+    canChicken ? "chicken breast" : null,
     "paneer",
     "chickpeas",
     canEgg ? "egg" : null,
@@ -513,31 +324,31 @@ function buildPlan(
   const anchorsFor = (primary: string[]) =>
     Array.from(new Set([...primary, ...fallbackAnchors])).filter(ok);
   const morningAnchors = anchorsFor(
-    canChicken ? rotate(["soya", "chicken"], variant) : ["soya"],
+    canChicken ? rotate(["soya", "chicken breast"], variant) : ["soya"],
   );
   const afternoonAnchors = anchorsFor(
-    canChicken ? rotate(["chicken", "soya"], variant) : ["soya"],
+    canChicken ? rotate(["chicken breast", "soya"], variant) : ["soya"],
   );
   const nightAnchors = anchorsFor(["soya"]);
 
   const bananaFillers: Array<[string, number]> = [
-    ["banana", caps.ban], ["bananaReg", caps.ban],
-    ["bananaNendran", caps.ban], ["bananaRed", caps.ban],
+    ["banana", caps.ban], ["regular banana", caps.ban],
+    ["nendran banana", caps.ban], ["red banana", caps.ban],
   ];
   const morningFillers = rotate(
-    [...bananaFillers, ["rice", caps.rice], ["sweetpotato", caps.sweet]] as Array<[string, number]>,
+    [...bananaFillers, ["white rice", caps.rice], ["sweet potato", caps.sweet]] as Array<[string, number]>,
     variant,
   ).filter(([id]) => ok(id));
   const carbFillers = rotate(
-    [["rice", caps.rice], ["sweetpotato", caps.sweet]] as Array<[string, number]>,
+    [["white rice", caps.rice], ["sweet potato", caps.sweet]] as Array<[string, number]>,
     variant,
   ).filter(([id]) => ok(id));
   const nightFillers = rotate(
-    [["peanut", caps.peanut], ["rice", caps.rice], ["sweetpotato", caps.sweet], ["paneer", caps.paneer]] as Array<[string, number]>,
+    [["peanut", caps.peanut], ["white rice", caps.rice], ["sweet potato", caps.sweet], ["paneer", caps.paneer]] as Array<[string, number]>,
     variant,
   ).filter(([id]) => ok(id));
   const sides: Array<[string, number]> = [
-    ["cucumber", 120], ["greenbeans", 120], ["chickpeas", 100],
+    ["cucumber", 120], ["green beans", 120], ["chickpeas", 100],
   ];
   const pickSide = (i: number) => rotate(sides, i).find(([id]) => ok(id));
 
@@ -622,11 +433,12 @@ function coverage(
       m.items.reduce((x: number, it: any) => x + costOf(ing, it.id, it.g), 0),
     0,
   );
-  const cost =
+  // Daily price = menu cost of the food (grams/100 x DB menu price) + ₹50 per
+  // selected meal. No margin and no cookable surcharge. 0 if nothing is filled.
+  const price =
     activeDelMeals.length > 0
-      ? ingredientsCost + PREP_COST * activeDelMeals.length
+      ? ingredientsCost + MEAL_CHARGE * delMeals.length
       : 0;
-  const price = cost > 0 ? Math.ceil((cost * MARGIN) / 5) * 5 : 0; // sell = (ingredients + prep) + 40%, rounded up to ₹5, or 0 if empty
   return { delNames, delMeals, selfMeals, delProt, price };
 }
 
@@ -651,14 +463,9 @@ const fmtG = (g: number) => {
   return Number.isInteger(r) ? `${r}` : r.toFixed(1);
 };
 
-const fmtQty = (ing: Record<string, IngredientData>, it: any) => {
-  const d = ing[it.id];
-  if (d.unit) {
-    const c = Math.round(it.g / d.unit);
-    return `${c} ${d.uname}${c > 1 ? "s" : ""} (${fmtG(it.g)}g)`;
-  }
-  return `${fmtG(it.g)}g`;
-};
+// `menu_items` has no portion-size column, so quantities render in grams rather
+// than as a piece count taken from a hardcoded table.
+const fmtQty = (_ing: Record<string, IngredientData>, it: any) => `${fmtG(it.g)}g`;
 
 function haversineKm(
   a: { lat: number; lng: number },
@@ -977,21 +784,21 @@ function Result({
   a,
   loc,
   ing,
-  menuKeys,
+  menu,
   saveStep,
   setLoc,
 }: {
   a: OnboardingAnswers;
   loc: LocState;
   ing: Record<string, IngredientData>;
-  menuKeys: Set<string> | null;
+  menu: MenuState;
   saveStep: (next: number, updatedAnswers?: OnboardingAnswers) => void;
   setLoc: (loc: LocState) => void;
 }) {
   const navigate = useNavigate();
   const [vary, setVary] = useState(0);
   const [freq, setFreq] = useState(a.freq || 1);
-  const plan = buildPlan(a, vary, ing, menuKeys);
+  const plan = buildPlan(a, vary, ing, null);
 
   const [customPlan, setCustomPlan] = useState<any>(null);
   const [isOrdering, setIsOrdering] = useState(false);
@@ -999,7 +806,7 @@ function Result({
 
   useEffect(() => {
     setCustomPlan(plan);
-  }, [vary, menuKeys]);
+  }, [vary, ing]);
 
   const planToUse = customPlan || plan;
   const cov = coverage(planToUse, freq, ing, a.preferredSlots);
@@ -1069,7 +876,7 @@ function Result({
   const canAddToMeal = useCallback((mealName: string, itemId: string) => {
     const meal = planToUse.meals.find((m: any) => m.name === mealName);
     const current = meal ? Math.round(meal.items.reduce((s: number, it: any) => s + kOf(ing, it.id, it.g), 0)) : 0;
-    const foodKcal = Math.round(kOf(ing, itemId, (ing[itemId] as any)?.unit || 50));
+    const foodKcal = Math.round(kOf(ing, itemId, DEFAULT_ADD_GRAMS));
     return current + foodKcal <= perMealKcalOf(mealName);
   }, [planToUse.meals, ing, perMealKcalOf]);
 
@@ -1144,9 +951,9 @@ function Result({
   };
 
   const handleAddItem = (mealName: string, itemId: string) => {
-    const d = ing[itemId] as any;
+    const d = ing[itemId];
     if (!d) return;
-    const defaultQty = d.unit || 50;
+    const defaultQty = DEFAULT_ADD_GRAMS;
     const targetMeal = mealName || cov.delNames[0] || planToUse.meals[0]?.name;
     if (!targetMeal) return;
     const targetMealObj = planToUse.meals.find((m: any) => m.name === targetMeal);
@@ -1252,7 +1059,27 @@ function Result({
 
   return (
     <div key="s9" className="anim" style={{ paddingTop: 12 }}>
-    
+      {/* `menu_items` is the only food source. If it could not be read, say so
+          instead of showing a plan built from nothing. */}
+      {menu.status === "error" && (
+        <div
+          style={{
+            fontFamily: FONT_BODY,
+            fontSize: 15,
+            color: C.nonveg,
+            background: "#FEE2E2",
+            border: "1px solid #FECACA",
+            borderRadius: 12,
+            padding: "14px 16px",
+            marginBottom: 24,
+          }}
+        >
+          <strong>Menu unavailable.</strong> We could not load foods from the
+          menu_items table ({menu.message}). Your plan and price cannot be
+          calculated until it is reachable — please reload to try again.
+        </div>
+      )}
+
       <Eyebrow>Your number</Eyebrow>
       <div
         style={{
@@ -1314,104 +1141,46 @@ function Result({
         </div>
       )}
 
-      {/* TIMELINE + SPEED */}
-      <div
-        style={{
-          background: C.card,
-          border: `1.5px solid ${C.yolk}`,
-          borderRadius: 16,
-          padding: 20,
-          marginBottom: 14,
-        }}
-      >
+      {/* The bordered "timeline + speed" card used to sit here. Its pace headline
+          and its "FuelBox delivers …" summary were removed earlier, which left
+          an empty 20px-padded box on the screen at 3 meals, so the container is
+          gone too. The two things it still carried are kept, unframed, in its
+          place: the self-cooked meal note and the "add a meal" control. */}
+      {cov.selfMeals.length > 0 && (
         <div
           style={{
             fontFamily: FONT_BODY,
-            fontSize: 11,
+            fontSize: 12,
             color: C.muted,
-            textTransform: "uppercase",
-            letterSpacing: "0.18em",
-            fontWeight: 700,
+            marginBottom: 14,
           }}
         >
-          At {FREQS[freq as keyof typeof FREQS].label} ·{" "}
-          {FREQS[freq as keyof typeof FREQS].tag} pace
+          {cov.selfMeals.map((m: any) => m.name).join(" + ")} from your side
+          (list on WhatsApp)
         </div>
-        <div
-          key={freq}
-          className="anim"
+      )}
+
+      {freq < 3 && (
+        <button
+          onClick={() => setFreq(freq + 1)}
+          className="w-full"
           style={{
-            fontFamily: FONT_DISPLAY,
-            fontSize: 44,
-            color: C.yolk,
-            lineHeight: 1.05,
-            margin: "6px 0 2px",
-          }}
-        >
-          {tl.big}
-        </div>
-        <div
-          style={{
+            marginTop: 14,
+            marginBottom: 14,
+            background: C.yolk,
+            color: C.ink,
+            border: "none",
+            borderRadius: 10,
             fontFamily: FONT_BODY,
+            fontWeight: 700,
             fontSize: 14,
-            color: C.bone,
-            fontWeight: 600,
+            padding: "12px",
+            cursor: "pointer",
           }}
         >
-          {tl.sub}
-        </div>
-
-        {/* coverage bar */}
-        <div
-          style={{
-            margin: "16px 0 6px",
-            height: 8,
-            background: C.line,
-            borderRadius: 6,
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              height: "100%",
-              width: `${Math.min(100, Math.round((cov.delProt / planToUse.protT) * 100))}%`,
-              background: C.yolk,
-              borderRadius: 6,
-              transition: "width 400ms ease",
-            }}
-          />
-        </div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.muted }}>
-          FuelBox delivers <b style={{ color: C.yolk }}>{cov.delProt}g</b>{" "}
-          protein · <b style={{ color: C.yolk }}>~{delKcal} kcal</b> of your{" "}
-          {planToUse.protT}g / ~{planToUse.kcalT} kcal day
-          {" "}
-          · each meal = day ÷ {MEAL_ORDER.length}, solved exactly to its share
-          {cov.selfMeals.length > 0 &&
-            ` · ${cov.selfMeals.map((m: any) => m.name).join(" + ")} from your side (list on WhatsApp)`}
-        </div>
-
-        {freq < 3 && (
-          <button
-            onClick={() => setFreq(freq + 1)}
-            className="w-full"
-            style={{
-              marginTop: 14,
-              background: C.yolk,
-              color: C.ink,
-              border: "none",
-              borderRadius: 10,
-              fontFamily: FONT_BODY,
-              fontWeight: 700,
-              fontSize: 14,
-              padding: "12px",
-              cursor: "pointer",
-            }}
-          >
-            ⚡ Cut my timeline — add a meal
-          </button>
-        )}
-      </div>
+          ⚡ Cut my timeline — add a meal
+        </button>
+      )}
 
       {/* PLAN CARD */}
       <div
@@ -1423,7 +1192,7 @@ function Result({
           marginBottom: 14,
         }}
       >
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between flex-col">
           <div>
             <div
               style={{
@@ -1650,8 +1419,9 @@ function Result({
                     <option value="" disabled>
                       + Add food to {m.name} — {kcalOfMeal(m)}/{perMealKcalOf(m.name)} kcal
                     </option>
+                    {/* Every entry in `ing` is a live menu_items row, so there is nothing to filter
+                        out here — the list already is the DB menu. */}
                     {Object.entries(ing)
-                      .filter(([id]) => !menuKeys || menuKeys.has(id))
                       .filter(([id]) => !m.items.some((it: any) => it.id === id))
                       .filter(([id, d]) => {
                         if (a.food === "veg" && (d as any).t !== "veg") return false;
@@ -1660,7 +1430,7 @@ function Result({
                       })
                       .map(([id, d]) => {
                         const canAdd = canAddToMeal(m.name, id);
-                        const kcal = Math.round(kOf(ing, id, (d as any).unit || 50));
+                        const kcal = Math.round(kOf(ing, id, DEFAULT_ADD_GRAMS));
                         return (
                           <option key={id} value={id} disabled={!canAdd} style={{ color: canAdd ? C.bone : C.muted }}>
                             {(d as any).n} — {kcal} kcal {canAdd ? "" : "(would exceed)"}
@@ -1961,58 +1731,48 @@ export default function Onboarding() {
     }
   }, []);
 
-  // Live ingredient data: BASE_ING merged with any DB-fetched overrides.
-  // Overrides live in state, not on a mutated shared object, so this is
-  // reactive and safe across multiple mounts.
-  const [ingOverrides, setIngOverrides] = useState<
-    Record<string, Partial<IngredientData>>
-  >({});
-  // BASE_ING keys that correspond to real DB menu items. null means the menu
-  // fetch hasn't succeeded, so the full static BASE_ING list acts as fallback.
-  const [menuKeys, setMenuKeys] = useState<Set<string> | null>(null);
-  const ing = useMemo(() => {
-    const merged: Record<string, IngredientData> = {};
-    for (const key of Object.keys(BASE_ING)) {
-      merged[key] = { ...BASE_ING[key], ...(ingOverrides[key] || {}) };
-    }
-    return merged;
-  }, [ingOverrides]);
+  // The food map, built exclusively from the `menu_items` rows. Empty until the
+  // fetch lands, and left empty on failure — there is no built-in food list to
+  // fall back to, which is exactly why `menu` carries the error for the UI.
+  const [ing, setIng] = useState<Record<string, IngredientData>>({});
+  const [menu, setMenu] = useState<MenuState>({ status: "loading" });
 
-  // Fetch live menu prices/macros from the database on mount
+  // `menu_items` is the single source of truth for names, nutrition and prices.
   useEffect(() => {
+    let cancelled = false;
     const loadDbFoods = async () => {
       try {
         const res = await fetch("/api/menu");
-        if (!res.ok) throw new Error("Failed to fetch menu from local API");
-        const data = await res.json();
-        if (!data || data.length === 0) return;
-
-        const overrides: Record<string, Partial<IngredientData>> = {};
-        const matched: string[] = [];
-        data.forEach((row: any) => {
-          const targetKey = findBaseKey(row.name);
-          if (targetKey) {
-            overrides[targetKey] = {
-              k: Number(row.calories ?? BASE_ING[targetKey].k),
-              p: Number(row.protein_g ?? row.protein ?? BASE_ING[targetKey].p),
-              c: Number(row.carbs_g ?? (BASE_ING[targetKey] as any).c ?? 0),
-              f: Number(row.fat_g ?? (BASE_ING[targetKey] as any).f ?? 0),
-              fi: Number(row.fiber_g ?? (BASE_ING[targetKey] as any).fi ?? 0),
-              price: Number(row.price ?? BASE_ING[targetKey].price),
-            };
-            matched.push(targetKey);
-          }
-        });
-
-        if (matched.length > 0) {
-          setIngOverrides(overrides);
-          setMenuKeys(new Set(matched));
+        if (!res.ok) {
+          throw new Error(`Menu request failed (HTTP ${res.status})`);
         }
-      } catch (err) {
-        console.warn("Failed to load menu items from API:", err);
+        const data = await res.json();
+        if (!Array.isArray(data)) {
+          throw new Error("Menu response was not a list of menu_items rows");
+        }
+        const next = foodsFromRows(data);
+        const count = Object.keys(next).length;
+        if (count === 0) {
+          throw new Error("No available items in menu_items");
+        }
+        if (cancelled) return;
+        setIng(next);
+        setMenu({ status: "ready", rows: count });
+      } catch (err: any) {
+        if (cancelled) return;
+        // Surface it rather than quietly reverting to built-in foods.
+        console.warn("Failed to load menu_items:", err);
+        setIng({});
+        setMenu({
+          status: "error",
+          message: err?.message || "Could not load the food menu",
+        });
       }
     };
     loadDbFoods();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Onboarding always starts fresh: any in-progress state left behind by an
@@ -2882,7 +2642,7 @@ export default function Onboarding() {
             a={a}
             loc={loc}
             ing={ing}
-            menuKeys={menuKeys}
+            menu={menu}
             saveStep={saveStep}
             setLoc={setLoc}
           />

@@ -33,11 +33,10 @@ function getBasePrice() {
     if (!Array.isArray(items) || items.length === 0) return 0;
 
     const mealPrice = items.reduce((sum: number, item: any) => sum + item.price * item.quantity, 0);
-    const cookingFee = items.filter((item: any) => item.cookable).length * 5;
     const deliveryCost = 15;
     const profitCost = 20;
     const packagingCost = 5;
-    const rawTotal = mealPrice + cookingFee + deliveryCost + profitCost + packagingCost;
+    const rawTotal = mealPrice + deliveryCost + profitCost + packagingCost;
 
     const remainder = rawTotal % 10;
     const rounded = remainder >= 5 ? rawTotal + (10 - remainder) : rawTotal - remainder;
@@ -101,12 +100,10 @@ export default function Payment() {
 
   const stateType = (location.state as Record<string, unknown> | null)?.type
   const isMealOrder = stateType === 'meal';
-  const COOKING_CHARGE = 5;
   const subtotal = cartItems.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
-  const cookingFee = cartItems.reduce((sum, item) => sum + (item.menuItem.cookable ? COOKING_CHARGE : 0), 0);
   const DELIVERY_CHARGE = 15;
   const PROFIT_MARGIN = 20;
-  const otherCharges = cookingFee + DELIVERY_CHARGE + PROFIT_MARGIN;
+  const otherCharges = DELIVERY_CHARGE + PROFIT_MARGIN;
   const cartTotal = subtotal + otherCharges;
 
   const plan = PLANS.find(p => p.id === selectedPlan);
@@ -274,7 +271,7 @@ export default function Payment() {
                       <span style={{ fontSize: '0.8125rem', color: '#374151', fontWeight: 600 }}>₹{subtotal}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.375rem' }}>
-                      <span style={{ fontSize: '0.8125rem', color: '#6b7280' }}>Other Charges {cookingFee > 0 ? `(Cooking ₹${cookingFee} + Delivery ₹${DELIVERY_CHARGE} + ₹${PROFIT_MARGIN})` : `(Delivery ₹${DELIVERY_CHARGE} + ₹${PROFIT_MARGIN})`}</span>
+                      <span style={{ fontSize: '0.8125rem', color: '#6b7280' }}>Other Charges (Delivery ₹{DELIVERY_CHARGE} + ₹{PROFIT_MARGIN})</span>
                       <span style={{ fontSize: '0.8125rem', color: '#374151', fontWeight: 600 }}>₹{otherCharges}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.5rem', borderTop: '1px solid #e5e7eb' }}>

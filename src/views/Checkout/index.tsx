@@ -193,8 +193,7 @@ export default function Checkout() {
           const items = JSON.parse(stored)
           if (Array.isArray(items) && items.length > 0) {
             const mealPrice = items.reduce((sum: number, item: any) => sum + (item.price || 0) * (item.quantity || 1), 0)
-            const cookingFee = items.filter((item: any) => item.cookable).length * 5
-            const rawTotal = mealPrice + cookingFee + 15 + 20 + 5
+            const rawTotal = mealPrice + 15 + 20 + 5
             const r = rawTotal % 10
             const basePrice = (r >= 5 ? rawTotal + (10 - r) : rawTotal - r) - 1
 
@@ -236,8 +235,7 @@ export default function Checkout() {
       }))
 
       const subtotal = cartItems.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0)
-      const cookingFee = cartItems.reduce((sum, item) => sum + (item.menuItem.cookable ? 5 : 0), 0)
-      const rawCost = subtotal + cookingFee + 15 + 20 + 5
+      const rawCost = subtotal + 15 + 20 + 5
       const cr = rawCost % 10
       const cost = (cr >= 5 ? rawCost + (10 - cr) : rawCost - cr) - 1
 

@@ -263,6 +263,7 @@ export default function AdminMenuPage() {
   const handleEditItem = (item: MenuItem) => {
     setEditingItem({
       ...item,
+      category: item.category || 'main',
       price_unit: item.price_unit || 'piece',
       cookable: !!item.cookable,
       calories: item.calories ?? 0,
@@ -299,6 +300,7 @@ export default function AdminMenuPage() {
 
       const payload: Record<string, unknown> = {
         name: editingItem.name,
+        category: editingItem.category || 'main',
         diet: editingItem.diet,
         price: Number(editingItem.price),
         price_unit:
@@ -344,6 +346,7 @@ export default function AdminMenuPage() {
                 ...item,
                 ...updatedItem,
                 name: editingItem.name,
+                category: editingItem.category || 'main',
                 diet: editingItem.diet,
                 price: Number(
                   editingItem.price
@@ -769,7 +772,7 @@ export default function AdminMenuPage() {
                       {item.cookable ? (
                         <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-xs font-semibold bg-energy-100 text-energy-700">
                           <ChefHat className="w-3 h-3" />
-                          <span>Yes (+Rs.5)</span>
+                          <span>Yes</span>
                         </span>
                       ) : (
                         <span className="text-gray-400 text-xs">No</span>
@@ -840,7 +843,7 @@ export default function AdminMenuPage() {
                         <span className="w-1 h-1 rounded-full bg-gray-300 shrink-0" />
                         <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-energy-700 bg-energy-50 px-1.5 py-0.5 rounded shrink-0">
                           <ChefHat className="w-3 h-3" />
-                          Cookable +Rs.5
+                          Cookable
                         </span>
                       </>
                     )}
@@ -975,6 +978,16 @@ export default function AdminMenuPage() {
                 <div className="min-w-0">
                   <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-2">Food Name</label>
                   <input type="text" required value={editingItem.name} onChange={(e) => setEditingItem({ ...editingItem, name: e.target.value, })} placeholder="Enter food name" className="w-full min-w-0 px-3 sm:px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm placeholder:text-gray-400" />
+                </div>
+
+                {/* CATEGORY - same options and behaviour as the Add form */}
+                <div className="min-w-0">
+                  <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-2">Category</label>
+                  <select value={editingItem.category || 'main'} onChange={(e) => setEditingItem({ ...editingItem, category: e.target.value, })} className="w-full min-w-0 px-3 sm:px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm">
+                    <option value="main">Main Dish</option>
+                    <option value="side">Side Dish</option>
+                    <option value="combo">Combo</option>
+                  </select>
                 </div>
 
                 {/* FOOD TYPE */}
@@ -1141,7 +1154,7 @@ export default function AdminMenuPage() {
                       className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${editingItem.cookable ? 'border-energy-500 bg-energy-50 text-energy-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 active:bg-gray-50'}`}
                     >
                       <ChefHat className="w-4 h-4 shrink-0" />
-                      <span className="truncate">Yes (+Rs.5)</span>
+                      <span className="truncate">Yes</span>
                     </button>
 
                     {/* NO */}
@@ -1162,7 +1175,7 @@ export default function AdminMenuPage() {
                   </div>
 
                   <p className="text-[11px] text-gray-400 mt-1.5">
-                    Cookable items get a +Rs.5 cooking surcharge.
+                    Mark items that need cooking.
                   </p>
 
                 </div>
@@ -1341,14 +1354,14 @@ export default function AdminMenuPage() {
                 <div className="grid grid-cols-2 gap-2 sm:gap-3">
                   <button type="button" onClick={() => setNewItem({ ...newItem, cookable: true, })} className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${newItem.cookable ? 'border-energy-500 bg-energy-50 text-energy-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}>
                     <ChefHat className="w-4 h-4 shrink-0" />
-                    <span className="truncate">Yes (+Rs.5)</span>
+                    <span className="truncate">Yes</span>
                   </button>
                   <button type="button" onClick={() => setNewItem({ ...newItem, cookable: false, })} className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${!newItem.cookable ? 'border-gray-400 bg-gray-100 text-gray-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}>
                     <X className="w-4 h-4 shrink-0" />
                     <span className="truncate">No</span>
                   </button>
                 </div>
-                <p className="text-[11px] text-gray-400 mt-1.5">Cookable items get a +Rs.5 cooking surcharge.</p>
+                <p className="text-[11px] text-gray-400 mt-1.5">Mark items that need cooking.</p>
               </div>
 
               {/* BUTTONS - stack on mobile */}
