@@ -137,7 +137,8 @@ export default function TermsConditions() {
               <br />
               Phone: +91 7810029931
               <br />
-              Address: Fuel Box, Coimbatore, Tamil Nadu, India
+              Address: The Fuel Box, 14 A2, Masakalipalayam Road, Metha Layout,
+              Peelamedu, Coimbatore, Tamil Nadu – 641004, India
             </p>
             <p className="mt-1">Our team will be happy to assist you during business hours.</p>
           </div>

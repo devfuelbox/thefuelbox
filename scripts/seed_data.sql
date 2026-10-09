@@ -27,6 +27,8 @@ CREATE TABLE `menu_items` (
   `category` VARCHAR(50) DEFAULT 'main',
   `is_available` TINYINT(1) DEFAULT '1',
   `cookable` TINYINT(1) DEFAULT '0',
+  `min_grams` INT DEFAULT NULL,
+  `max_grams` INT DEFAULT NULL,
   `image_url` VARCHAR(255) DEFAULT '',
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

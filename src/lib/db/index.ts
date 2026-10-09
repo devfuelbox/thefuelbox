@@ -60,6 +60,11 @@ export function defineModels(sequelize: Sequelize) {
     category: { type: DataTypes.STRING, defaultValue: 'main' },
     is_available: { type: DataTypes.BOOLEAN, defaultValue: true },
     cookable: { type: DataTypes.BOOLEAN, defaultValue: false },
+    // Serving size limits in grams, set from the admin panel. Nullable on
+    // purpose: NULL means "no limit", which is what every item has until an
+    // admin sets one. syncSchema() adds these columns to existing databases.
+    min_grams: { type: DataTypes.INTEGER, allowNull: true, defaultValue: null },
+    max_grams: { type: DataTypes.INTEGER, allowNull: true, defaultValue: null },
     image_url: { type: DataTypes.STRING, defaultValue: '' },
   }, { underscored: true });
 

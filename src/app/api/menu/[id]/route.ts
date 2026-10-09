@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDbModels } from '@/lib/db';
+import { PORTION_FIELDS, parsePortionLimits, checkPortionRange } from '@/lib/menuPortionLimits';
 
 const ALLOWED_FIELDS = [
   'name',
@@ -15,6 +16,8 @@ const ALLOWED_FIELDS = [
   'category',
   'is_available',
   'cookable',
+  'min_grams',
+  'max_grams',
   'image_url',
 ] as const;
 
@@ -102,6 +105,27 @@ export async function PATCH(
       }
     }
 
+    // Portion limits in grams. Only the fields the request actually sends are
+    // touched — `{ min_grams: 20 }` must not silently clear max_grams — and the
+    // pair is checked as it will stand afterwards, against the stored values.
+    const portion = parsePortionLimits(body);
+    if (!portion.ok) {
+      return NextResponse.json({ message: portion.message }, { status: 400 });
+    }
+    delete (sanitised as any).min_grams;
+    delete (sanitised as any).max_grams;
+    const nextMin = 'min_grams' in portion.updates
+      ? portion.updates.min_grams ?? null
+      : item.min_grams ?? null;
+    const nextMax = 'max_grams' in portion.updates
+      ? portion.updates.max_grams ?? null
+      : item.max_grams ?? null;
+    const rangeError = checkPortionRange(nextMin, nextMax);
+    if (rangeError) {
+      return NextResponse.json({ message: rangeError }, { status: 400 });
+    }
+    Object.assign(sanitised, portion.updates);
+
     // Normalize image_url to relative path — never store https://localhost:3000...
     if ('image_url' in sanitised && sanitised.image_url != null && sanitised.image_url !== '') {
       const normalized = normalizeImageUrlForStorage(sanitised.image_url);
@@ -115,6 +139,14 @@ export async function PATCH(
       const attributes = (MenuItem as any).getAttributes?.();
       if (attributes && !attributes['price_unit'] && 'price_unit' in sanitised) {
         delete (sanitised as any)['price_unit'];
+      }
+      // Same for the portion limits, so an un-migrated database never 500s
+      if (attributes) {
+        for (const field of PORTION_FIELDS) {
+          if (!attributes[field] && field in sanitised) {
+            delete (sanitised as any)[field];
+          }
+        }
       }
     } catch {
       // ignore

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDbModels } from '@/lib/db';
+import { PORTION_FIELDS, parsePortionLimits, checkPortionRange } from '@/lib/menuPortionLimits';
 
 export async function GET() {
   try {
@@ -19,7 +20,8 @@ export async function GET() {
 // Allowed fields for creating a menu item (whitelist to prevent mass-assignment)
 const ALLOWED_FIELDS = [
   'name', 'description', 'price', 'calories', 'protein_g', 'carbs_g',
-  'fat_g', 'fiber_g', 'diet', 'category', 'is_available', 'cookable', 'image_url',
+  'fat_g', 'fiber_g', 'diet', 'category', 'is_available', 'cookable',
+  'min_grams', 'max_grams', 'image_url',
 ] as const;
 
 type AllowedField = (typeof ALLOWED_FIELDS)[number];
@@ -67,7 +69,38 @@ export async function POST(req: Request) {
       if (normalized) sanitised.image_url = normalized;
     }
 
+    // Portion limits in grams — parsed and range-checked as a pair so the
+    // values are stored as whole grams or not at all.
+    const portion = parsePortionLimits(body);
+    if (!portion.ok) {
+      return NextResponse.json({ message: portion.message }, { status: 400 });
+    }
+    delete (sanitised as any).min_grams;
+    delete (sanitised as any).max_grams;
+    Object.assign(sanitised, portion.updates);
+    const rangeError = checkPortionRange(
+      portion.updates.min_grams ?? null,
+      portion.updates.max_grams ?? null,
+    );
+    if (rangeError) {
+      return NextResponse.json({ message: rangeError }, { status: 400 });
+    }
+
     const { MenuItem } = await getDbModels();
+    // Skip the portion fields if their columns are not there yet — the schema
+    // sync adds them on first access, but never fail a create over it.
+    try {
+      const attributes = (MenuItem as any).getAttributes?.();
+      if (attributes) {
+        for (const field of PORTION_FIELDS) {
+          if (!attributes[field] && field in sanitised) {
+            delete (sanitised as any)[field];
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
     const newItem = await (MenuItem as any).create(sanitised);
     return NextResponse.json(newItem, { status: 201 });
   } catch (err) {

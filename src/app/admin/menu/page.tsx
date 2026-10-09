@@ -34,6 +34,8 @@ interface MenuItem {
   category: string;
   cookable: boolean;
   is_available: boolean;
+  min_grams?: number | null;
+  max_grams?: number | null;
   image_url?: string | null;
 }
 
@@ -63,6 +65,11 @@ const normalizeImageUrlForStorage = (url?: string | null): string | null => {
   }
   return p;
 };
+
+// A blank portion-limit field means "no limit"; anything typed is stored as
+// whole grams.
+const parseGrams = (value: string): number | null =>
+  value.trim() === '' ? null : Math.max(0, Math.round(Number(value) || 0));
 
 const getDisplayImageUrl = (url?: string | null) => {
   if (!url) return null;
@@ -114,6 +121,9 @@ export default function AdminMenuPage() {
     category: 'main',
     cookable: false,
     is_available: true,
+    // Serving size limits in grams; null = no limit
+    min_grams: null as number | null,
+    max_grams: null as number | null,
   });
 
   // Image upload states - Add
@@ -271,6 +281,8 @@ export default function AdminMenuPage() {
       carbs_g: item.carbs_g ?? 0,
       fat_g: item.fat_g ?? 0,
       fiber_g: item.fiber_g ?? 0,
+      min_grams: item.min_grams ?? null,
+      max_grams: item.max_grams ?? null,
     });
     setEditImageFile(null);
     setEditImagePreview(getDisplayImageUrl(item.image_url));
@@ -287,6 +299,15 @@ export default function AdminMenuPage() {
     e.preventDefault();
 
     if (!editingItem) return;
+
+    if (
+      editingItem.min_grams != null &&
+      editingItem.max_grams != null &&
+      editingItem.min_grams > editingItem.max_grams
+    ) {
+      alert('Minimum quantity cannot be greater than maximum quantity.');
+      return;
+    }
 
     setSavingEdit(true);
 
@@ -313,6 +334,8 @@ export default function AdminMenuPage() {
         carbs_g: Number(editingItem.carbs_g) || 0,
         fat_g: Number(editingItem.fat_g) || 0,
         fiber_g: Number(editingItem.fiber_g) || 0,
+        min_grams: editingItem.min_grams ?? null,
+        max_grams: editingItem.max_grams ?? null,
       };
       // Only include image_url if a new image was uploaded - keeps existing if unchanged
       // Save exact Blob URL (e.g., https://...blob.vercel-storage.com/...) without conversion
@@ -567,6 +590,15 @@ export default function AdminMenuPage() {
   ) => {
     e.preventDefault();
 
+    if (
+      newItem.min_grams != null &&
+      newItem.max_grams != null &&
+      newItem.min_grams > newItem.max_grams
+    ) {
+      alert('Minimum quantity cannot be greater than maximum quantity.');
+      return;
+    }
+
     try {
       setUploading(true);
       let imageUrl: string | undefined = undefined;
@@ -625,6 +657,8 @@ export default function AdminMenuPage() {
         category: 'main',
         cookable: false,
         is_available: true,
+        min_grams: null,
+        max_grams: null,
       });
       if (newImagePreview && newImagePreview.startsWith('blob:')) URL.revokeObjectURL(newImagePreview);
       setNewImageFile(null);
@@ -1088,6 +1122,25 @@ export default function AdminMenuPage() {
                   </div>
                 </div>
 
+                {/* PORTION SIZE - optional serving limits in grams */}
+                <div className="rounded-2xl bg-gray-50/70 border border-gray-100 p-3 sm:p-4 space-y-3 sm:space-y-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-4 bg-brand-600 rounded-full shrink-0" />
+                    <h3 className="text-sm font-bold text-gray-900">Portion Size (grams)</h3>
+                    <span className="text-xs text-gray-500 ml-auto hidden sm:inline">leave blank for no limit</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                    <div className="min-w-0">
+                      <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-1.5">Minimum (g)</label>
+                      <input type="number" min="0" step="1" value={editingItem.min_grams ?? ''} onChange={(e) => setEditingItem({ ...editingItem, min_grams: parseGrams(e.target.value), })} placeholder="No minimum" className="w-full min-w-0 px-3 sm:px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-gray-400" />
+                    </div>
+                    <div className="min-w-0">
+                      <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-1.5">Maximum (g)</label>
+                      <input type="number" min="0" step="1" value={editingItem.max_grams ?? ''} onChange={(e) => setEditingItem({ ...editingItem, max_grams: parseGrams(e.target.value), })} placeholder="No maximum" className="w-full min-w-0 px-3 sm:px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-gray-400" />
+                    </div>
+                  </div>
+                </div>
+
                 {/* STOCK STATUS */}
                 <div>
 
@@ -1333,6 +1386,25 @@ export default function AdminMenuPage() {
                   <input type="number" min="0" step="0.1" required value={newItem.fiber_g} onChange={(e) => setNewItem({ ...newItem, fiber_g: parseFloat(e.target.value) || 0, })} placeholder="e.g., 3" className="w-full min-w-0 px-3 py-3 sm:py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 </div>
               </div>
+              </div>
+
+              {/* PORTION SIZE - optional serving limits in grams */}
+              <div className="rounded-xl bg-gray-50/70 border border-gray-100 p-3 sm:p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-1 h-4 bg-brand-600 rounded-full shrink-0" />
+                  <h3 className="text-sm font-bold text-gray-900">Portion Size (grams)</h3>
+                  <span className="text-xs text-gray-500 ml-auto hidden sm:inline">leave blank for no limit</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                  <div className="min-w-0">
+                    <label className="block font-bold text-gray-700 mb-1 text-xs sm:text-sm">Minimum (g)</label>
+                    <input type="number" min="0" step="1" value={newItem.min_grams ?? ''} onChange={(e) => setNewItem({ ...newItem, min_grams: parseGrams(e.target.value), })} placeholder="No minimum" className="w-full min-w-0 px-3 py-3 sm:py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                  </div>
+                  <div className="min-w-0">
+                    <label className="block font-bold text-gray-700 mb-1 text-xs sm:text-sm">Maximum (g)</label>
+                    <input type="number" min="0" step="1" value={newItem.max_grams ?? ''} onChange={(e) => setNewItem({ ...newItem, max_grams: parseGrams(e.target.value), })} placeholder="No maximum" className="w-full min-w-0 px-3 py-3 sm:py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                  </div>
+                </div>
               </div>
 
               {/* STOCK */}

@@ -58,6 +58,9 @@ async function seed() {
       category: { type: DataTypes.STRING, defaultValue: 'main' },
       is_available: { type: DataTypes.BOOLEAN, defaultValue: true },
       cookable: { type: DataTypes.BOOLEAN, defaultValue: false },
+      // Serving size limits in grams — NULL means "no limit"
+      min_grams: { type: DataTypes.INTEGER, allowNull: true, defaultValue: null },
+      max_grams: { type: DataTypes.INTEGER, allowNull: true, defaultValue: null },
       image_url: { type: DataTypes.STRING, defaultValue: '' },
     }, { underscored: true });
 

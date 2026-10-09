@@ -89,7 +89,7 @@ const nextConfig = {
             value: [
               "default-src 'self'",
                  // Scripts — Next.js + Cloudflare Web Analytics
-              "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com",
               // Styles — self + inline + Google Fonts (kept for fallback)
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               // Fonts — self-hosted via next/font + Google Fonts CDN as fallback

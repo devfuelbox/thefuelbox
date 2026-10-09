@@ -214,7 +214,7 @@ export default function Footer() {
               {/* Location */}
               <li className="group">
                 <a
-                  href="https://www.google.com/maps/search/?api=1&query=The+Fuel+Box+Coimbatore+Tamil+Nadu"
+                  href="https://www.google.com/maps/search/?api=1&query=11.0218943%2C77.0172345"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-start gap-2 cursor-pointer"
@@ -224,7 +224,9 @@ export default function Footer() {
                   <span className="group-hover:text-brand-600 transition-colors">
                     The Fuel Box
                     <br />
-                    Coimbatore, Tamil Nadu
+                    14 A2, Masakalipalayam Road, Metha Layout,
+                    <br />
+                    Peelamedu, Coimbatore – 641004
                   </span>
                 </a>
               </li>

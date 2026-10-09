@@ -77,7 +77,8 @@ export default function PrivacyPolicy() {
             <p className="mt-2">
               Email: help@fuelbox.in
               <br />
-              Address: Fuel Box, Coimbatore, Tamil Nadu, India
+              Address: The Fuel Box, 14 A2, Masakalipalayam Road, Metha Layout,
+              Peelamedu, Coimbatore, Tamil Nadu – 641004, India
             </p>
           </div>
         </div>

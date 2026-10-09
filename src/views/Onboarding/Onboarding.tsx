@@ -31,7 +31,11 @@ const FONT_BODY = "'Inter', sans-serif";
 
 // ─── BUSINESS CONFIG ─────────────────────────────────────
 const WA_NUMBER = "919384302527"; // Ajith
-const KITCHEN = { lat: 11.0197, lng: 76.992 }; // Nava India junction, Coimbatore
+// The Fuel Box, 14 A2, Masakalipalayam Road, Metha Layout, POAD, Peelamedu,
+// Coimbatore, Tamil Nadu 641004. Every distance, free/paid zone and delivery
+// fee on this page is measured from this one point — the customer's own
+// device location is never touched, only the shop it is measured against.
+const KITCHEN = { lat: 11.0218943, lng: 77.0172345 };
 const FREE_KM = 5;
 const MAX_KM = 30; // beyond this: waitlist
 const FEE_PER_KM = 10; // ₹ per km after 5km
@@ -825,6 +829,16 @@ function Result({
     Math.round(
       m.items.reduce((s: number, it: any) => s + pOf(ing, it.id, it.g), 0),
     );
+  // Fat is the one macro a whole gram can hide, so it is carried at 0.1 g all
+  // the way up: the food's own share, the meal's total, and the day's total are
+  // summed from the same figures and never rounded twice.
+  const fatOfMeal = (m: any) =>
+    round1(
+      m.items.reduce(
+        (s: number, it: any) => s + round1(fOf(ing, it.id, it.g)),
+        0,
+      ),
+    );
   const delKcal = cov.delMeals.reduce(
     (s: number, m: any) => s + kcalOfMeal(m),
     0,
@@ -844,7 +858,12 @@ function Result({
     const calories = Math.round(items.reduce((s: number, it: any) => s + kOf(ing, it.id, it.g), 0));
     const protein = Math.round(items.reduce((s: number, it: any) => s + pOf(ing, it.id, it.g), 0));
     const carbs = Math.round(items.reduce((s: number, it: any) => s + cOf(ing, it.id, it.g), 0));
-    const fat = Math.round(items.reduce((s: number, it: any) => s + fOf(ing, it.id, it.g), 0));
+    // Fat: each food's share (grams/100 x fat_g) is kept to 0.1 g, the meals
+    // add those up, and the day adds the meals — so the three levels on screen
+    // always total each other exactly, and updates propagate straight through.
+    const fat = round1(
+      cov.delMeals.reduce((s: number, m: any) => s + fatOfMeal(m), 0),
+    );
     const fiber = Math.round(items.reduce((s: number, it: any) => s + fiOf(ing, it.id, it.g), 0) * 10) / 10;
     return { calories, protein, carbs, fat, fiber };
   }, [cov.delMeals, ing]);
@@ -900,7 +919,7 @@ function Result({
       .join("\n");
     const locTxt =
       loc.km != null
-        ? `Location: ${loc.km} km from Nava India (maps.google.com/?q=${loc.lat},${loc.lng}) — ${loc.status === "free" ? "FREE delivery" : loc.status === "paid" ? `delivery ₹${loc.fee}/day` : "outside zone (waitlist)"}`
+        ? `Location: ${loc.km} km from The Fuel Box, Peelamedu (maps.google.com/?q=${loc.lat},${loc.lng}) — ${loc.status === "free" ? "FREE delivery" : loc.status === "paid" ? `delivery ₹${loc.fee}/day` : "outside zone (waitlist)"}`
         : "Location: will confirm on WhatsApp";
     const msg =
       `Hi Ajith! ${waitlist ? "WAITLIST — outside 30km.\n" : ""}FuelBox plan for ${a.name}:\n` +
@@ -1241,27 +1260,6 @@ function Result({
           </div>
         </div>
         <div style={{ height: 1, background: C.line, margin: "16px 0" }} />
-                {/* FIXED TARGET vs SELECTED - clear separation */}
-        <div style={{ background: "#F9FAFB", border: `1px solid ${C.line}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.14em", marginBottom: 10 }}>Daily Nutrition Target — Fixed</div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
-              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Calories</div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.bone, fontWeight: 800 }}>{fixedTarget.calories.toLocaleString()} <span style={{ fontSize: 11, color: C.muted }}>kcal</span></div>
-            </div>
-            <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
-              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Protein</div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.bone, fontWeight: 800 }}>{fixedTarget.protein}g</div>
-            </div>
-            <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
-              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Carbs / Fat</div>
-              <div style={{ fontSize: 13, color: C.bone, fontWeight: 700 }}>{fixedTarget.carbs}g / {fixedTarget.fat}g</div>
-              <div style={{ fontSize: 10, color: C.muted }}>{fixedTarget.fiber}g Fiber</div>
-            </div>
-          </div>
-          <div style={{ fontSize: 11, color: C.muted, marginTop: 8, lineHeight: 1.4 }}>These values stay fixed. Adding or removing foods does not change your target. Each meal is solved to its exact day ÷ {MEAL_ORDER.length} share (odd remainders split across meals), so the meals you select always hit their combined target exactly.</div>
-        </div>
-
         <div style={{ background: C.card, border: `1px solid ${C.yolk}20`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
           <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.yolk, textTransform: "uppercase", letterSpacing: "0.14em", marginBottom: 10 }}>Your Selected Foods — {selectedNutrition.calories} kcal · {selectedNutrition.protein}g Protein</div>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-3">
@@ -1337,7 +1335,7 @@ function Result({
                   {mine ? "🟨 " : ""}{m.name}{mine ? " — FuelBox" : " — your side"}
                 </span>
                 <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: mine ? C.yolk : C.muted }}>
-                  {kcalOfMeal(m)} / {perMealKcalOf(m.name)} kcal · {protOfMeal(m)} / {perMealProteinOf(m.name)}g P
+                  {kcalOfMeal(m)} / {perMealKcalOf(m.name)} kcal · {protOfMeal(m)} / {perMealProteinOf(m.name)}g P · {fatOfMeal(m)}g F
                 </span>
               </div>
               {mine && (() => {
@@ -1365,7 +1363,7 @@ function Result({
                   const cal = Math.round(kOf(ing, it.id, it.g));
                   const pro = Math.round(pOf(ing, it.id, it.g));
                   const carbs = Math.round(cOf(ing, it.id, it.g));
-                  const fat = Math.round(fOf(ing, it.id, it.g));
+                  const fat = round1(fOf(ing, it.id, it.g));
                   const fib = Math.round(fiOf(ing, it.id, it.g) * 10) / 10;
                   return (
                     <div key={it.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2" style={{ padding: "10px 0", borderBottom: `1px solid rgba(0,0,0,0.04)` }}>
@@ -2346,7 +2344,8 @@ export default function Onboarding() {
                     margin: "14px 0",
                   }}
                 >
-                  Free delivery within {FREE_KM} km of Nava India. Up to{" "}
+                  Free delivery within {FREE_KM} km of The Fuel Box, Peelamedu.
+                  Up to{" "}
                   {MAX_KM} km: ₹{FEE_PER_KM}/km after the free zone — calculated
                   live.
                 </div>

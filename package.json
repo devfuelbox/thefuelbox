@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "node --test \"tests/*.test.mjs\"",
     "preview": "next start",
     "seed": "npx ts-node scripts/seed_database.ts"
   },
