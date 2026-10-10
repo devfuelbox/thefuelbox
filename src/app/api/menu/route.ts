@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDbModels } from '@/lib/db';
 import { PORTION_FIELDS, parsePortionLimits, checkPortionRange } from '@/lib/menuPortionLimits';
+import { parseGoalCategories } from '@/lib/goalCategories';
 
 export async function GET() {
   try {
@@ -21,7 +22,7 @@ export async function GET() {
 const ALLOWED_FIELDS = [
   'name', 'description', 'price', 'calories', 'protein_g', 'carbs_g',
   'fat_g', 'fiber_g', 'diet', 'category', 'is_available', 'cookable',
-  'min_grams', 'max_grams', 'image_url',
+  'min_grams', 'max_grams', 'goal_categories', 'image_url',
 ] as const;
 
 type AllowedField = (typeof ALLOWED_FIELDS)[number];
@@ -86,13 +87,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ message: rangeError }, { status: 400 });
     }
 
+    // Goal categories — validated to the known goal keys; NULL/[] means
+    // uncategorized, which the onboarding shows under every goal.
+    if ('goal_categories' in body) {
+      const goals = parseGoalCategories(body.goal_categories);
+      if (!goals.ok) {
+        return NextResponse.json({ message: goals.message }, { status: 400 });
+      }
+      sanitised.goal_categories = goals.categories;
+    }
+
     const { MenuItem } = await getDbModels();
     // Skip the portion fields if their columns are not there yet — the schema
     // sync adds them on first access, but never fail a create over it.
     try {
       const attributes = (MenuItem as any).getAttributes?.();
       if (attributes) {
-        for (const field of PORTION_FIELDS) {
+        for (const field of [...PORTION_FIELDS, 'goal_categories'] as const) {
           if (!attributes[field] && field in sanitised) {
             delete (sanitised as any)[field];
           }

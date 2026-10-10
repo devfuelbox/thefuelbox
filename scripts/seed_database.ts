@@ -61,6 +61,9 @@ async function seed() {
       // Serving size limits in grams — NULL means "no limit"
       min_grams: { type: DataTypes.INTEGER, allowNull: true, defaultValue: null },
       max_grams: { type: DataTypes.INTEGER, allowNull: true, defaultValue: null },
+      // Fitness goals this food is assigned to — JSON array of goal keys;
+      // NULL/[] means uncategorized (offered under every goal)
+      goal_categories: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
       image_url: { type: DataTypes.STRING, defaultValue: '' },
     }, { underscored: true });
 

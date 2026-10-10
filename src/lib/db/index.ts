@@ -65,6 +65,12 @@ export function defineModels(sequelize: Sequelize) {
     // admin sets one. syncSchema() adds these columns to existing databases.
     min_grams: { type: DataTypes.INTEGER, allowNull: true, defaultValue: null },
     max_grams: { type: DataTypes.INTEGER, allowNull: true, defaultValue: null },
+    // Fitness goals this food is assigned to (Weight Loss / Weight Gain /
+    // Muscle Gain / Weight Maintenance) as a JSON array of goal keys. NULL or
+    // [] means uncategorized, which the onboarding shows under every goal —
+    // so an unassigned item behaves exactly as it did before this column.
+    // syncSchema() adds it to existing databases.
+    goal_categories: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
     image_url: { type: DataTypes.STRING, defaultValue: '' },
   }, { underscored: true });
 

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDbModels } from '@/lib/db';
 import { requireRole } from '@/lib/auth';
+import { validateSavedMealPlan } from '@/lib/mealPlanValidation';
 
 export async function GET(req: Request) {
   const auth = requireRole(req, ['super_admin', 'verifier', 'admin']);
@@ -89,7 +90,7 @@ export async function PATCH(req: Request) {
     const { id, ...updates } = body;
     if (!id) return NextResponse.json({ message: 'id required' }, { status: 400 });
 
-    const { CustomerEnquiry } = await getDbModels();
+    const { CustomerEnquiry, MenuItem } = await getDbModels();
     const existing = await (CustomerEnquiry as any).findByPk(id);
     if (!existing) return NextResponse.json({ message: 'Not found' }, { status: 404 });
 
@@ -120,6 +121,14 @@ export async function PATCH(req: Request) {
       fields.order_status = 'pending_verification';
       fields.verifier_notes = updates.verifier_notes || '';
     } else if (updates.action === 'save_plan') {
+      // Only a plan actually being replaced is checked; verify/assign_chef/
+      // request_changes never touch stored portions.
+      if (updates.meal_plan !== undefined && updates.meal_plan !== null) {
+        const check = await validateSavedMealPlan(updates.meal_plan, MenuItem);
+        if (!check.ok) {
+          return NextResponse.json({ message: check.message }, { status: 400 });
+        }
+      }
       if (updates.meal_plan !== undefined) fields.meal_plan = updates.meal_plan;
       if (updates.selected_food_items !== undefined) fields.selected_food_items = updates.selected_food_items;
       if (updates.daily_calories !== undefined) fields.daily_calories = Number(updates.daily_calories);

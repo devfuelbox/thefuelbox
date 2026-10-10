@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDbModels } from '@/lib/db';
 import { requireRole } from '@/lib/auth';
+import { validateSavedMealPlan } from '@/lib/mealPlanValidation';
 
 export async function POST(req: Request) {
   const auth = requireRole(req, ['super_admin', 'sales', 'admin']);
@@ -8,7 +9,16 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { CustomerEnquiry, Customer } = await getDbModels();
+    const { CustomerEnquiry, Customer, MenuItem } = await getDbModels();
+
+    // Reject a crafted plan whose portions fall outside the configured windows
+    // before anything is stored.
+    if (body.meal_plan !== undefined && body.meal_plan !== null) {
+      const check = await validateSavedMealPlan(body.meal_plan, MenuItem);
+      if (!check.ok) {
+        return NextResponse.json({ message: check.message }, { status: 400 });
+      }
+    }
 
     const record = await (CustomerEnquiry as any).create({
       customer_name: body.customer_name,
@@ -102,12 +112,21 @@ export async function PATCH(req: Request) {
     const { id, ...updates } = body;
     if (!id) return NextResponse.json({ message: 'id required' }, { status: 400 });
 
-    const { CustomerEnquiry, Customer } = await getDbModels();
+    const { CustomerEnquiry, Customer, MenuItem } = await getDbModels();
     const existing = await (CustomerEnquiry as any).findByPk(id);
     if (!existing) return NextResponse.json({ message: 'Not found' }, { status: 404 });
 
     if (auth.user!.role === 'sales' && existing.assigned_sales_id !== auth.user!.sub) {
       return NextResponse.json({ message: 'Not your enquiry' }, { status: 403 });
+    }
+
+    // Only a meal plan actually being replaced needs checking; status-only
+    // updates never touch stored portions.
+    if (updates.meal_plan !== undefined && updates.meal_plan !== null) {
+      const check = await validateSavedMealPlan(updates.meal_plan, MenuItem);
+      if (!check.ok) {
+        return NextResponse.json({ message: check.message }, { status: 400 });
+      }
     }
 
     const fields: Record<string, any> = {};

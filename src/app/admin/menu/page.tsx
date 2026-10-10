@@ -14,6 +14,7 @@ import {
   Image as ImageIcon,
   Upload,
 } from 'lucide-react';
+import { GOAL_CATEGORY_OPTIONS, GOAL_CATEGORY_LABELS } from '@/lib/goalCategories';
 
 type PriceUnit = 'kg' | 'piece';
 
@@ -36,6 +37,7 @@ interface MenuItem {
   is_available: boolean;
   min_grams?: number | null;
   max_grams?: number | null;
+  goal_categories?: string[] | null;
   image_url?: string | null;
 }
 
@@ -81,6 +83,58 @@ const getDisplayImageUrl = (url?: string | null) => {
   return `/images/${url.replace(/^\//, '')}`;
 };
 
+// Goal categories — the fitness goals this food belongs to. An item can be in
+// any number of them. Leave every box unchecked to keep the food uncategorized,
+// which the onboarding shows under every goal (so nothing changes until an
+// admin assigns a category).
+const GoalCategoryPicker = ({
+  value,
+  onChange,
+}: {
+  value: string[];
+  onChange: (next: string[]) => void;
+}) => {
+  const toggle = (slug: string) =>
+    onChange(
+      value.includes(slug)
+        ? value.filter((v) => v !== slug)
+        : [...value, slug]
+    );
+
+  return (
+    <div className="rounded-xl bg-gray-50/70 border border-gray-100 p-3 sm:p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <div className="w-1 h-4 bg-brand-600 rounded-full shrink-0" />
+        <h3 className="text-sm font-bold text-gray-900">Goal Categories</h3>
+        <span className="text-xs text-gray-500 ml-auto hidden sm:inline">one or more</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:gap-3">
+        {GOAL_CATEGORY_OPTIONS.map(({ value: slug, label }) => {
+          const active = value.includes(slug);
+          return (
+            <button
+              key={slug}
+              type="button"
+              onClick={() => toggle(slug)}
+              className={`px-2 sm:px-3 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${
+                active
+                  ? 'border-brand-600 bg-brand-50 text-brand-700'
+                  : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 active:bg-gray-50'
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[11px] text-gray-400 mt-1.5 leading-relaxed">
+        Shown to onboarding users whose goal matches. Leave all unchecked to show this
+        food under every goal.
+      </p>
+    </div>
+  );
+};
+
 export default function AdminMenuPage() {
   const [items, setItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,6 +178,8 @@ export default function AdminMenuPage() {
     // Serving size limits in grams; null = no limit
     min_grams: null as number | null,
     max_grams: null as number | null,
+    // Fitness goals this food belongs to; [] = uncategorized (every goal)
+    goal_categories: [] as string[],
   });
 
   // Image upload states - Add
@@ -283,6 +339,7 @@ export default function AdminMenuPage() {
       fiber_g: item.fiber_g ?? 0,
       min_grams: item.min_grams ?? null,
       max_grams: item.max_grams ?? null,
+      goal_categories: Array.isArray(item.goal_categories) ? item.goal_categories : [],
     });
     setEditImageFile(null);
     setEditImagePreview(getDisplayImageUrl(item.image_url));
@@ -336,6 +393,7 @@ export default function AdminMenuPage() {
         fiber_g: Number(editingItem.fiber_g) || 0,
         min_grams: editingItem.min_grams ?? null,
         max_grams: editingItem.max_grams ?? null,
+        goal_categories: Array.isArray(editingItem.goal_categories) ? editingItem.goal_categories : [],
       };
       // Only include image_url if a new image was uploaded - keeps existing if unchanged
       // Save exact Blob URL (e.g., https://...blob.vercel-storage.com/...) without conversion
@@ -387,6 +445,7 @@ export default function AdminMenuPage() {
                 fat_g: Number(editingItem.fat_g) || 0,
                 fiber_g: Number(editingItem.fiber_g) || 0,
                 image_url: imageUrl || item.image_url || updatedItem.image_url,
+                goal_categories: Array.isArray(editingItem.goal_categories) ? editingItem.goal_categories : [],
               }
             : item
         )
@@ -659,6 +718,7 @@ export default function AdminMenuPage() {
         is_available: true,
         min_grams: null,
         max_grams: null,
+        goal_categories: [],
       });
       if (newImagePreview && newImagePreview.startsWith('blob:')) URL.revokeObjectURL(newImagePreview);
       setNewImageFile(null);
@@ -773,6 +833,15 @@ export default function AdminMenuPage() {
                       <span className="block text-xs font-normal text-gray-400 mt-0.5">
                         {item.calories || 0} kcal | P: {item.protein_g || 0}g C: {item.carbs_g || 0}g F: {item.fat_g || 0}g Fiber: {item.fiber_g || 0}g
                       </span>
+                      {Array.isArray(item.goal_categories) && item.goal_categories.length > 0 && (
+                        <span className="flex flex-wrap gap-1 mt-1">
+                          {item.goal_categories.map((g) => (
+                            <span key={g} className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-brand-50 text-brand-700 border border-brand-100">
+                              {GOAL_CATEGORY_LABELS[g as keyof typeof GOAL_CATEGORY_LABELS] || g}
+                            </span>
+                          ))}
+                        </span>
+                      )}
                     </td>
                     <td className="py-4 px-6">
                       {(() => { const cfg = getDietConfig(item.diet); return <span className={`inline-block px-2 py-1 rounded-lg text-xs font-bold border ${cfg.classes}`}>{cfg.label}</span>; })()}
@@ -1141,6 +1210,13 @@ export default function AdminMenuPage() {
                   </div>
                 </div>
 
+                <GoalCategoryPicker
+                  value={Array.isArray(editingItem.goal_categories) ? editingItem.goal_categories : []}
+                  onChange={(goal_categories) =>
+                    setEditingItem({ ...editingItem, goal_categories })
+                  }
+                />
+
                 {/* STOCK STATUS */}
                 <div>
 
@@ -1406,6 +1482,11 @@ export default function AdminMenuPage() {
                   </div>
                 </div>
               </div>
+
+              <GoalCategoryPicker
+                value={newItem.goal_categories}
+                onChange={(goal_categories) => setNewItem({ ...newItem, goal_categories })}
+              />
 
               {/* STOCK */}
               <div>

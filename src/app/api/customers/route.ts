@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDbModels } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
+import { validateSavedMealPlan } from "@/lib/mealPlanValidation";
 import { Op } from "sequelize";
 
 async function nextOrderId(Customer: any) {
@@ -61,7 +62,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ message: "Valid 10-digit phone required" }, { status: 400 });
     }
 
-    const { Customer } = await getDbModels();
+    const { Customer, MenuItem } = await getDbModels();
+
+    // Same rule as the onboarding save: a hand-built plan must stay inside
+    // every food's configured portion window.
+    if (meal_plan) {
+      const check = await validateSavedMealPlan(meal_plan, MenuItem);
+      if (!check.ok) {
+        return NextResponse.json({ message: check.message }, { status: 400 });
+      }
+    }
 
     let customer = await (Customer as any).findOne({ where: { phone } });
 

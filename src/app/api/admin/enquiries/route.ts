@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDbModels } from '@/lib/db';
 import { calculateNutrition } from '@/lib/nutrition/calculations';
+import { validateSavedMealPlan } from '@/lib/mealPlanValidation';
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fuelbox_dev_secret_change_in_production';
@@ -38,6 +39,15 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const { CustomerEnquiry, MenuItem } = await getDbModels();
+
+    // A meal plan persisted here must respect every item's portion window —
+    // validate the raw payload before the array-only coercion below stores it.
+    if (body.meal_plan !== undefined && body.meal_plan !== null) {
+      const check = await validateSavedMealPlan(body.meal_plan, MenuItem);
+      if (!check.ok) {
+        return NextResponse.json({ message: check.message }, { status: 400 });
+      }
+    }
 
     const total = Number(body.total_amount) || 0;
     const paid = Number(body.paid_amount) || 0;
@@ -108,9 +118,18 @@ export async function PATCH(req: Request) {
     const { id, ...updates } = body;
     if (!id) return NextResponse.json({ message: 'id required' }, { status: 400 });
 
-    const { CustomerEnquiry } = await getDbModels();
+    const { CustomerEnquiry, MenuItem } = await getDbModels();
     const existing = await (CustomerEnquiry as any).findByPk(id);
     if (!existing) return NextResponse.json({ message: 'Not found' }, { status: 404 });
+
+    // Only plans actually being replaced need checking; a payment-only PATCH
+    // leaves the stored plan untouched.
+    if ('meal_plan' in updates && updates.meal_plan !== undefined && updates.meal_plan !== null) {
+      const check = await validateSavedMealPlan(updates.meal_plan, MenuItem);
+      if (!check.ok) {
+        return NextResponse.json({ message: check.message }, { status: 400 });
+      }
+    }
 
     const total = Number(updates.total_amount ?? existing.total_amount) || 0;
     const paidBase = Number(existing.paid_amount) || 0;

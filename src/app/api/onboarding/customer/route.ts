@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { Op } from 'sequelize';
 import { getDbModels } from '@/lib/db';
+import { validateSavedMealPlan } from '@/lib/mealPlanValidation';
 
 // Generate a sequential, human-friendly order id (FB-01, FB-02, …)
 async function nextOrderId(Customer: any) {
@@ -54,7 +55,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: 'Name and phone are required' }, { status: 400 });
     }
 
-    const { Customer } = await getDbModels();
+    const { Customer, MenuItem } = await getDbModels();
+
+    // The onboarding clamps every gram it generates, but a hand-built request
+    // must not be able to write a plan outside a food's configured window.
+    if (meal_plan) {
+      const check = await validateSavedMealPlan(meal_plan, MenuItem);
+      if (!check.ok) {
+        return NextResponse.json({ success: false, error: check.message }, { status: 400 });
+      }
+    }
 
     // Check if customer with this phone already exists to update them, otherwise create
     let customer = await (Customer as any).findOne({ where: { phone } });

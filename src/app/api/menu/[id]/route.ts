@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDbModels } from '@/lib/db';
 import { PORTION_FIELDS, parsePortionLimits, checkPortionRange } from '@/lib/menuPortionLimits';
+import { parseGoalCategories } from '@/lib/goalCategories';
 
 const ALLOWED_FIELDS = [
   'name',
@@ -18,6 +19,7 @@ const ALLOWED_FIELDS = [
   'cookable',
   'min_grams',
   'max_grams',
+  'goal_categories',
   'image_url',
 ] as const;
 
@@ -126,6 +128,16 @@ export async function PATCH(
     }
     Object.assign(sanitised, portion.updates);
 
+    // Goal categories — validated to the known goal keys. Only the goals the
+    // request actually sends are touched, and an empty list clears all of them.
+    if ('goal_categories' in body) {
+      const goals = parseGoalCategories(body.goal_categories);
+      if (!goals.ok) {
+        return NextResponse.json({ message: goals.message }, { status: 400 });
+      }
+      sanitised.goal_categories = goals.categories;
+    }
+
     // Normalize image_url to relative path — never store https://localhost:3000...
     if ('image_url' in sanitised && sanitised.image_url != null && sanitised.image_url !== '') {
       const normalized = normalizeImageUrlForStorage(sanitised.image_url);
@@ -142,7 +154,7 @@ export async function PATCH(
       }
       // Same for the portion limits, so an un-migrated database never 500s
       if (attributes) {
-        for (const field of PORTION_FIELDS) {
+        for (const field of [...PORTION_FIELDS, 'goal_categories'] as const) {
           if (!attributes[field] && field in sanitised) {
             delete (sanitised as any)[field];
           }

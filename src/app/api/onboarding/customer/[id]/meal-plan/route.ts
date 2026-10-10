@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDbModels } from '@/lib/db';
+import { validateSavedMealPlan } from '@/lib/mealPlanValidation';
 
 export async function PUT(req: Request, { params }: { params: { id: string } }) {
   try {
@@ -13,11 +14,18 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       return NextResponse.json({ success: false, error: 'Meal plan data is required' }, { status: 400 });
     }
 
-    const { Customer } = await getDbModels();
+    const { Customer, MenuItem } = await getDbModels();
     const customer = await (Customer as any).findByPk(customerId);
 
     if (!customer) {
       return NextResponse.json({ success: false, error: 'Customer not found' }, { status: 404 });
+    }
+
+    // The admin UI clamps every gram it saves, but only the API can stop a
+    // crafted request from writing a portion outside a food's window.
+    const check = await validateSavedMealPlan(meal_plan, MenuItem);
+    if (!check.ok) {
+      return NextResponse.json({ success: false, error: check.message }, { status: 400 });
     }
 
     await customer.update({ meal_plan });

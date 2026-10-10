@@ -12,6 +12,26 @@ import {
   calculateHealthMetrics,
   type OnboardingAnswers,
 } from "@/lib/healthCalculations";
+import { belongsToGoal, toGoalCategoryList } from "@/lib/goalCategories";
+import {
+  buildPlan,
+  coverage,
+  DEFAULT_ADD_GRAMS,
+  type IngredientData,
+  kOf,
+  pOf,
+  cOf,
+  fOf,
+  fiOf,
+  costOf,
+  MEAL_ORDER,
+  round1,
+  type BuiltPlan,
+} from "@/lib/mealSolver";
+import {
+  clampPortion,
+  portionBounds,
+} from "@/lib/menuPortionLimits";
 
 // ─── FUELBOX BRAND TOKENS (matches website theme) ───────
 const C = {
@@ -39,29 +59,14 @@ const KITCHEN = { lat: 11.0218943, lng: 77.0172345 };
 const FREE_KM = 5;
 const MAX_KM = 30; // beyond this: waitlist
 const FEE_PER_KM = 10; // ₹ per km after 5km
-const MEAL_CHARGE = 70; // ₹ per selected meal per day
-// Starting portion when the user adds a food by hand. `menu_items` has no
-// portion-size column, so a flat 50 g default is all there is to go on.
-const DEFAULT_ADD_GRAMS = 70;
 
 // ─── FOODS — sourced exclusively from the `menu_items` database table ──
 // There is no static food list and no built-in nutrition or price anywhere in
 // this file. Every field below is read straight off a `menu_items` row. If the
 // table cannot be read, the onboarding reports the error instead of quietly
 // substituting built-in data (see `MenuState`).
-interface IngredientData {
-  dbId: number; // menu_items.id
-  n: string; // menu_items.name
-  t: "veg" | "egg" | "nonveg"; // menu_items.diet, normalized
-  k: number; // calories per 100 g
-  p: number; // protein_g per 100 g
-  c: number; // carbs_g per 100 g
-  f: number; // fat_g per 100 g
-  fi: number; // fiber_g per 100 g
-  price: number; // ₹ per 100 g
-  cookable: boolean; // menu_items.cookable — carried for display, never priced
-  category: string; // menu_items.category
-}
+// The `IngredientData` shape lives in src/lib/mealSolver.ts, the single module
+// that both this screen and the automated tests read.
 
 // How the onboarding may use the menu. `error` means the request failed or the
 // table came back with nothing usable; there is deliberately no `fallback` case.
@@ -109,30 +114,20 @@ const foodsFromRows = (rows: any[]): Record<string, IngredientData> => {
       price: Number(row.price ?? 0),
       cookable: row.cookable === true,
       category: String(row.category ?? ""),
+      gc: toGoalCategoryList(row.goal_categories),
+      min: numOrNull(row.min_grams),
+      max: numOrNull(row.max_grams),
     };
   }
   return ing;
 };
 
-// Cycles a list so index `start` comes first — used to rotate food picks
-// per plan variant.
-const rotate = <T,>(arr: T[], start: number): T[] =>
-  arr.map((_, i) => arr[(start + i) % arr.length]);
-
-const kOf = (ing: Record<string, IngredientData>, id: string, g: number) =>
-  (ing[id]?.k * g) / 100 || 0;
-const pOf = (ing: Record<string, IngredientData>, id: string, g: number) =>
-  (ing[id]?.p * g) / 100 || 0;
-const cOf = (ing: Record<string, IngredientData>, id: string, g: number) =>
-  ((ing[id]?.c ?? 0) * g) / 100 || 0;
-const fOf = (ing: Record<string, IngredientData>, id: string, g: number) =>
-  ((ing[id]?.f ?? 0) * g) / 100 || 0;
-const fiOf = (ing: Record<string, IngredientData>, id: string, g: number) =>
-  ((ing[id]?.fi ?? 0) * g) / 100 || 0;
-const costOf = (ing: Record<string, IngredientData>, id: string, g: number) =>
-  (ing[id]?.price * g) / 100 || 0;
-
-const MEAL_ORDER = ["Morning", "Afternoon", "Night"];
+// NULL / empty mean "no limit"; anything else is whole grams.
+const numOrNull = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
 
 // ─── PLAN LOGIC ──────────────────────────────────────────
 const GOALS = {
@@ -179,272 +174,11 @@ const FREQS = {
   },
 };
 
-// ─── EXACT MEAL SOLVER ───────────────────────────────────
-// Every meal is solved to its own integer share of the daily target (day ÷ 3,
-// remainder spread over the first meals), so any subset of meals sums to the
-// matching share of the day exactly. Each meal mixes one dense protein anchor
-// with one lighter filler: the two unknowns are solved continuously, snapped
-// to a 0.1g grid and nudged on that grid until the meal rounds to its share —
-// no combination lands above or below the target.
-const round1 = (x: number) => Math.round(x * 10) / 10;
-
-const sharesOf = (total: number): number[] => {
-  const base = Math.floor(total / 3);
-  const rem = total - base * 3;
-  return [base + (rem > 0 ? 1 : 0), base + (rem > 1 ? 1 : 0), base];
-};
-
-const densityOf = (ing: Record<string, IngredientData>, id: string) => {
-  const d = ing[id];
-  return d && d.k > 0 ? d.p / d.k : 0;
-};
-
-function fillMeal(
-  ing: Record<string, IngredientData>,
-  fixed: Array<{ id: string; g: number }>,
-  anchors: string[],
-  fillers: Array<[string, number]>,
-  shareK: number,
-  shareP: number,
-): Array<{ id: string; g: number }> {
-  const items = fixed.map((f) => ({ ...f }));
-  const add = (id: string, g: number) => {
-    const gr = round1(g);
-    if (gr <= 0) return;
-    const e = items.find((x) => x.id === id);
-    if (e) e.g = round1(e.g + gr);
-    else items.push({ id, g: gr });
-  };
-  const fixedK = fixed.reduce((s, f) => s + kOf(ing, f.id, f.g), 0);
-  const fixedP = fixed.reduce((s, f) => s + pOf(ing, f.id, f.g), 0);
-  const dK = shareK - fixedK;
-  const dP = shareP - fixedP;
-  if (dK <= 0 || dP <= 0) return items;
-
-  // The anchor must be denser than the meal's remaining protein:calorie ratio
-  // and the filler lighter — that keeps both continuous solutions positive.
-  const ratio = dP / dK;
-  const anchor = anchors.find((id) => ing[id] && densityOf(ing, id) > ratio);
-  if (!anchor) return items;
-
-  const ka = ing[anchor].k / 100;
-  const pa = ing[anchor].p / 100;
-  const sols: Array<{ id: string; ga: number; gf: number; cap: number }> = [];
-  for (const [fid, cap] of fillers) {
-    const fd = ing[fid] ? densityOf(ing, fid) : 0;
-    if (!fd || fid === anchor || !(fd < ratio)) continue;
-    const kf = ing[fid].k / 100;
-    const pf = ing[fid].p / 100;
-    const det = ka * pf - kf * pa;
-    let ga = 0;
-    let gf = 0;
-    if (Math.abs(det) > 1e-9) {
-      ga = (dK * pf - kf * dP) / det;
-      gf = (ka * dP - pa * dK) / det;
-    } else if (pa > 0) {
-      ga = dP / pa;
-    }
-    if (!isFinite(ga) || !isFinite(gf) || ga < 0 || gf < 0) continue;
-    sols.push({ id: fid, ga, gf, cap });
-  }
-  if (!sols.length) {
-    // Degraded menu (no lighter filler): cover the protein gap with the anchor.
-    if (pa > 0) add(anchor, round1(dP / pa));
-    return items;
-  }
-
-  // First filler whose grams stay inside the realistic cap; otherwise the
-  // least over-cap one so a single filler never dominates the plate.
-  const pick =
-    sols.find((s) => s.gf <= s.cap) ??
-    sols.reduce((b, s) => (s.gf / s.cap < b.gf / b.cap ? s : b));
-  const kf = ing[pick.id].k / 100;
-  const pf = ing[pick.id].p / 100;
-
-  // Snap to the 0.1g grid, then nudge until the meal rounds to its share
-  // exactly; among passing grids keep the smallest calorie/protein error.
-  const a0 = round1(pick.ga);
-  const f0 = round1(pick.gf);
-  let bestA = a0;
-  let bestF = f0;
-  let bestScore = Infinity;
-  for (let da = -4; da <= 4; da++) {
-    for (let df = -4; df <= 4; df++) {
-      const ga = Math.max(0, a0 + da / 10);
-      const gf = Math.max(0, f0 + df / 10);
-      const K = fixedK + ka * ga + kf * gf;
-      const P = fixedP + pa * ga + pf * gf;
-      const pass = Math.round(K) === shareK && Math.round(P) === shareP;
-      const eK = K - shareK;
-      const eP = P - shareP;
-      const score = (pass ? 0 : 1e6) + eK * eK + 16 * eP * eP;
-      if (score < bestScore) {
-        bestScore = score;
-        bestA = ga;
-        bestF = gf;
-      }
-    }
-  }
-  add(anchor, bestA);
-  add(pick.id, bestF);
-  return items;
-}
-
-function buildPlan(
-  a: OnboardingAnswers,
-  variant: number,
-  ing: Record<string, IngredientData>,
-  allowed?: Set<string> | null,
-) {
-  // `ing` holds only foods that came back from `menu_items`, so membership is
-  // enough: a food that is not on the menu simply is not there to be picked.
-  const ok = (id: string) => !!ing[id] && (!allowed || allowed.has(id));
-  const canChicken = (a.food || "veg") === "nonveg";
-  const canEgg = canChicken || (a.food || "veg") === "egg";
-  const metrics = calculateHealthMetrics(a);
-  const kcalT = metrics.goalCalories;
-  const protT = metrics.proteinG;
-
-  // Daily target → integer per-meal shares (remainder on the first meals).
-  const shareK = sharesOf(kcalT);
-  const shareP = sharesOf(protT);
-  const caps =
-    (a.goal || "loss") === "loss"
-      ? { ban: 240, rice: 250, sweet: 180, peanut: 45, paneer: 150 }
-      : { ban: 360, rice: 350, sweet: 260, peanut: 60, paneer: 150 };
-
-  // Dense anchors per meal (rotation gives each variant a different mix);
-  // the fallbacks only matter when the primary foods are off the menu.
-  // The keys below are `menu_items` names run through `normFoodName`, so they are
-  // derived from the DB rather than declared here. This is only the set of foods
-  // the solver prefers — no nutrition or price is written in this file.
-  const fallbackAnchors = [
-    "soya",
-    canChicken ? "chicken breast" : null,
-    "paneer",
-    "chickpeas",
-    canEgg ? "egg" : null,
-  ].filter((x): x is string => !!x);
-  const anchorsFor = (primary: string[]) =>
-    Array.from(new Set([...primary, ...fallbackAnchors])).filter(ok);
-  const morningAnchors = anchorsFor(
-    canChicken ? rotate(["soya", "chicken breast"], variant) : ["soya"],
-  );
-  const afternoonAnchors = anchorsFor(
-    canChicken ? rotate(["chicken breast", "soya"], variant) : ["soya"],
-  );
-  const nightAnchors = anchorsFor(["soya"]);
-
-  const bananaFillers: Array<[string, number]> = [
-    ["banana", caps.ban], ["regular banana", caps.ban],
-    ["nendran banana", caps.ban], ["red banana", caps.ban],
-  ];
-  const morningFillers = rotate(
-    [...bananaFillers, ["white rice", caps.rice], ["sweet potato", caps.sweet]] as Array<[string, number]>,
-    variant,
-  ).filter(([id]) => ok(id));
-  const carbFillers = rotate(
-    [["white rice", caps.rice], ["sweet potato", caps.sweet]] as Array<[string, number]>,
-    variant,
-  ).filter(([id]) => ok(id));
-  const nightFillers = rotate(
-    [["peanut", caps.peanut], ["white rice", caps.rice], ["sweet potato", caps.sweet], ["paneer", caps.paneer]] as Array<[string, number]>,
-    variant,
-  ).filter(([id]) => ok(id));
-  const sides: Array<[string, number]> = [
-    ["cucumber", 120], ["green beans", 120], ["chickpeas", 100],
-  ];
-  const pickSide = (i: number) => rotate(sides, i).find(([id]) => ok(id));
-
-  const fixedMorning: Array<{ id: string; g: number }> = [];
-  if (canEgg && ok("egg")) fixedMorning.push({ id: "egg", g: 50 });
-  if (ok("watermelon")) fixedMorning.push({ id: "watermelon", g: 150 });
-
-  const morning = fillMeal(ing, fixedMorning, morningAnchors, morningFillers, shareK[0], shareP[0]);
-  const sideA = pickSide(variant);
-  const afternoon = fillMeal(
-    ing,
-    sideA ? [{ id: sideA[0], g: sideA[1] }] : [],
-    afternoonAnchors,
-    carbFillers,
-    shareK[1],
-    shareP[1],
-  );
-  const sideN = pickSide(variant + 1);
-  const night = fillMeal(
-    ing,
-    sideN ? [{ id: sideN[0], g: sideN[1] }] : [],
-    nightAnchors,
-    nightFillers,
-    shareK[2],
-    shareP[2],
-  );
-
-  const mealItems = [morning, afternoon, night];
-  const meals = MEAL_ORDER.map((name, i) => ({ name, items: mealItems[i] })).filter(
-    (m) => m.items.length > 0,
-  );
-
-  const items: Array<{ id: string; g: number }> = [];
-  mealItems.forEach((mi) =>
-    mi.forEach((it) => {
-      const e = items.find((x) => x.id === it.id);
-      if (e) e.g = round1(e.g + it.g);
-      else items.push({ ...it });
-    }),
-  );
-
-  const protein = Math.round(
-    items.reduce((s, it) => s + pOf(ing, it.id, it.g), 0),
-  );
-  const kcal = Math.round(
-    items.reduce((s, it) => s + kOf(ing, it.id, it.g), 0),
-  );
-  const mealTargets: Record<string, { kcal: number; protein: number }> = {};
-  MEAL_ORDER.forEach((name, i) => {
-    mealTargets[name] = { kcal: shareK[i], protein: shareP[i] };
-  });
-
-  return { items, meals, protein, kcal, protT, kcalT, mealTargets };
-}
-
-function coverage(
-  plan: any,
-  freq: number,
-  ing: Record<string, IngredientData>,
-  preferredSlots?: string[],
-) {
-  const protOf = (m: any) =>
-    m.items.reduce((s: number, it: any) => s + pOf(ing, it.id, it.g), 0);
-  const ranked = [...plan.meals].sort(
-    (x: any, y: any) => protOf(y) - protOf(x),
-  );
-  const delNames =
-    preferredSlots && preferredSlots.length === freq
-      ? preferredSlots
-      : freq >= 3
-        ? plan.meals.map((m: any) => m.name)
-        : ranked.slice(0, freq).map((m: any) => m.name);
-  const delMeals = plan.meals.filter((m: any) => delNames.includes(m.name));
-  const selfMeals = plan.meals.filter((m: any) => !delNames.includes(m.name));
-  const delProt = Math.round(
-    delMeals.reduce((s: number, m: any) => s + protOf(m), 0),
-  );
-  const activeDelMeals = delMeals.filter((m: any) => m.items.length > 0);
-  const ingredientsCost = delMeals.reduce(
-    (s: number, m: any) =>
-      s +
-      m.items.reduce((x: number, it: any) => x + costOf(ing, it.id, it.g), 0),
-    0,
-  );
-  // Daily price = menu cost of the food (grams/100 x DB menu price) + ₹50 per
-  // selected meal. No margin and no cookable surcharge. 0 if nothing is filled.
-  const price =
-    activeDelMeals.length > 0
-      ? ingredientsCost + MEAL_CHARGE * delMeals.length
-      : 0;
-  return { delNames, delMeals, selfMeals, delProt, price };
-}
+// ─── PLAN GENERATION ──────────────────────────────────────
+// `buildPlan` and `coverage` live in src/lib/mealSolver.ts. They are pure
+// functions — the portion limits (min_grams/max_grams) are enforced there, at
+// the source, so every meal here is already inside the configured windows and
+// the totals are recomputed from the actual chosen grams.
 
 function timeline(goal: string | null, freq: number) {
   const f = FREQS[freq as keyof typeof FREQS].speed;
@@ -467,8 +201,9 @@ const fmtG = (g: number) => {
   return Number.isInteger(r) ? `${r}` : r.toFixed(1);
 };
 
-// `menu_items` has no portion-size column, so quantities render in grams rather
-// than as a piece count taken from a hardcoded table.
+// Quantities render in grams — the solver's unit — so a portion size is never
+// guessed from a hardcoded table. The allowed serving window itself comes from
+// `menu_items` min_grams/max_grams; the planner clamps to it.
 const fmtQty = (_ing: Record<string, IngredientData>, it: any) => `${fmtG(it.g)}g`;
 
 function haversineKm(
@@ -802,7 +537,22 @@ function Result({
   const navigate = useNavigate();
   const [vary, setVary] = useState(0);
   const [freq, setFreq] = useState(a.freq || 1);
-  const plan = buildPlan(a, vary, ing, null);
+
+  // The foods offered for the goal this user picked. A food qualifies when it
+  // has no goal categories (uncategorized — how every item starts) or when its
+  // list includes the selected goal (see belongsToGoal). This same set drives
+  // the auto-built plan and the "add food" dropdown, so the meals on screen
+  // are always made of the foods the user's goal is supposed to show.
+  const goalFoods = useMemo(() => {
+    const goal = a.goal || "loss";
+    const keys = new Set<string>();
+    for (const [id, d] of Object.entries(ing)) {
+      if (belongsToGoal(d.gc, goal)) keys.add(id);
+    }
+    return keys;
+  }, [ing, a.goal]);
+
+  const plan = buildPlan(a, vary, ing, goalFoods);
 
   const [customPlan, setCustomPlan] = useState<any>(null);
   const [isOrdering, setIsOrdering] = useState(false);
@@ -810,7 +560,7 @@ function Result({
 
   useEffect(() => {
     setCustomPlan(plan);
-  }, [vary, ing]);
+  }, [vary, ing, goalFoods]);
 
   const planToUse = customPlan || plan;
   const cov = coverage(planToUse, freq, ing, a.preferredSlots);
@@ -895,7 +645,11 @@ function Result({
   const canAddToMeal = useCallback((mealName: string, itemId: string) => {
     const meal = planToUse.meals.find((m: any) => m.name === mealName);
     const current = meal ? Math.round(meal.items.reduce((s: number, it: any) => s + kOf(ing, it.id, it.g), 0)) : 0;
-    const foodKcal = Math.round(kOf(ing, itemId, DEFAULT_ADD_GRAMS));
+    // The same clamp the solver applies: the "add" dropdown always previews the
+    // portion it would actually add, never an amount below/above the food's limits.
+    const d = ing[itemId];
+    const grams = d ? clampPortion(DEFAULT_ADD_GRAMS, portionBounds({ min_grams: d.min, max_grams: d.max })) : DEFAULT_ADD_GRAMS;
+    const foodKcal = Math.round(kOf(ing, itemId, grams));
     return current + foodKcal <= perMealKcalOf(mealName);
   }, [planToUse.meals, ing, perMealKcalOf]);
 
@@ -972,7 +726,10 @@ function Result({
   const handleAddItem = (mealName: string, itemId: string) => {
     const d = ing[itemId];
     if (!d) return;
-    const defaultQty = DEFAULT_ADD_GRAMS;
+    // The food's configured window (when set) clamps the default serving, so a
+    // manual addition is always a legal portion — never below min, never past max.
+    const bounds = portionBounds({ min_grams: d.min, max_grams: d.max });
+    const defaultQty = clampPortion(DEFAULT_ADD_GRAMS, bounds);
     const targetMeal = mealName || cov.delNames[0] || planToUse.meals[0]?.name;
     if (!targetMeal) return;
     const targetMealObj = planToUse.meals.find((m: any) => m.name === targetMeal);
@@ -1315,6 +1072,25 @@ function Result({
           </div>
         </div>
 
+        {planToUse.limitWarning && (
+          <div
+            style={{
+              background: "rgba(232,185,49,0.08)",
+              border: `1.5px solid ${C.egg}`,
+              borderRadius: 12,
+              padding: "12px 14px",
+              marginBottom: 14,
+              fontFamily: FONT_BODY,
+              fontSize: 12,
+              color: C.bone,
+              lineHeight: 1.5,
+            }}
+          >
+            <b style={{ color: C.egg }}>Portion limits applied. </b>
+            {planToUse.limitWarning}
+          </div>
+        )}
+
         {planToUse.meals.map((m: any) => {
           const mine = cov.delNames.includes(m.name);
           return (
@@ -1417,9 +1193,12 @@ function Result({
                     <option value="" disabled>
                       + Add food to {m.name} — {kcalOfMeal(m)}/{perMealKcalOf(m.name)} kcal
                     </option>
-                    {/* Every entry in `ing` is a live menu_items row, so there is nothing to filter
-                        out here — the list already is the DB menu. */}
+                    {/* Every entry in `ing` is a live menu_items row, and the
+                        same goal filter that built the plan narrows this list:
+                        foods the user's goal is not assigned to are not
+                        offered here either. */}
                     {Object.entries(ing)
+                      .filter(([id]) => goalFoods.has(id))
                       .filter(([id]) => !m.items.some((it: any) => it.id === id))
                       .filter(([id, d]) => {
                         if (a.food === "veg" && (d as any).t !== "veg") return false;
@@ -1428,7 +1207,14 @@ function Result({
                       })
                       .map(([id, d]) => {
                         const canAdd = canAddToMeal(m.name, id);
-                        const kcal = Math.round(kOf(ing, id, DEFAULT_ADD_GRAMS));
+                        // Preview the same portion the add handler will use —
+                        // the food's own window clamps the 70 g default, so the
+                        // label never quotes an illegal plate.
+                        const grams = clampPortion(
+                          DEFAULT_ADD_GRAMS,
+                          portionBounds({ min_grams: d.min, max_grams: d.max }),
+                        );
+                        const kcal = Math.round(kOf(ing, id, grams));
                         return (
                           <option key={id} value={id} disabled={!canAdd} style={{ color: canAdd ? C.bone : C.muted }}>
                             {(d as any).n} — {kcal} kcal {canAdd ? "" : "(would exceed)"}
