@@ -3,8 +3,9 @@
  * React, a browser or a database.
  *
  * Every food is read from a `menu_items` row: nutrition, price, cookable and now
- * its configured serving window (`min_grams` / `max_grams`) and its goal
- * categories (`goal_categories`). A food assigned to the user's goal is ranked
+ * its configured serving window (`min_grams` / `max_grams`, plus optional
+ * per-goal overrides in `goal_portions`) and its goal categories
+ * (`goal_categories`). A food assigned to the user's goal is ranked
  * ahead of the generic staples and is given a rotating featured serving in one
  * meal per plan, so an admin's "Paneer → Muscle Gain" actually shows up in a
  * Muscle Gain, Veg plan.
@@ -25,8 +26,9 @@ import {
 } from './healthCalculations';
 import {
   clampPortion,
-  portionBounds,
+  portionBoundsForGoal,
   type PortionBounds,
+  type GoalPortions,
 } from './menuPortionLimits';
 import { belongsToGoal } from './goalCategories';
 
@@ -45,6 +47,7 @@ export interface IngredientData {
   gc: string[]; // menu_items.goal_categories — goal keys this food is assigned to
   min: number | null; // menu_items.min_grams — null means "no minimum"
   max: number | null; // menu_items.max_grams — null means "no maximum"
+  gp?: GoalPortions; // menu_items.goal_portions — per-goal window overrides
 }
 
 export const MEAL_ORDER = ['Morning', 'Afternoon', 'Night'];
@@ -115,12 +118,20 @@ const densityOf = (ing: Record<string, IngredientData>, id: string) => {
   return d && d.k > 0 ? d.p / d.k : 0;
 };
 
-/** The effective window for a food currently in the solver. */
+/** The effective window for a food currently in the solver, under `goal`. */
 const boundsOf = (
   ing: Record<string, IngredientData>,
   id: string,
+  goal: string | null | undefined,
 ): PortionBounds =>
-  portionBounds({ min_grams: ing[id]?.min ?? null, max_grams: ing[id]?.max ?? null });
+  portionBoundsForGoal(
+    {
+      min_grams: ing[id]?.min ?? null,
+      max_grams: ing[id]?.max ?? null,
+      goal_portions: ing[id]?.gp,
+    },
+    goal,
+  );
 
 const hasConfiguredLimit = (bounds: PortionBounds): boolean =>
   bounds.min > 0 || bounds.max != null;
@@ -153,13 +164,14 @@ function solveAnchor(
   excluded: Set<string> | undefined,
   shareK: number,
   shareP: number,
+  goal: string | null | undefined,
 ): { items: MealItem[]; limited: boolean; exact: boolean; err: number } | null {
   const ad = ing[anchor];
   if (!ad || ad.k <= 0 || !(ad.p / ad.k > ratio)) return null;
 
   const ka = ad.k / 100;
   const pa = ad.p / 100;
-  const aBounds = boundsOf(ing, anchor);
+  const aBounds = boundsOf(ing, anchor, goal);
   const sols: Array<{ id: string; ga: number; gf: number; cap: number }> = [];
   for (const [fid, cap] of fillers) {
     if (excluded?.has(fid)) continue;
@@ -207,7 +219,7 @@ function solveAnchor(
     sols.reduce((b, s) => (s.gf / s.cap < b.gf / b.cap ? s : b));
   const kf = ing[pick.id].k / 100;
   const pf = ing[pick.id].p / 100;
-  const fBounds = boundsOf(ing, pick.id);
+  const fBounds = boundsOf(ing, pick.id, goal);
 
   // Snap to the 0.1g grid, then nudge until the meal rounds to its share
   // exactly; among passing grids keep the smallest calorie/protein error. Every
@@ -270,13 +282,14 @@ function fillMeal(
   fillers: Array<[string, number]>,
   shareK: number,
   shareP: number,
+  goal: string | null | undefined,
   excluded?: Set<string>,
 ): { items: MealItem[]; limited: boolean } {
   // Fixed foods (egg, watermelon, a side, a featured goal food) are clamped to
   // their own window too.
   const items: MealItem[] = fixed.map((f) => ({
     id: f.id,
-    g: round1(clampPortion(f.g, boundsOf(ing, f.id))),
+    g: round1(clampPortion(f.g, boundsOf(ing, f.id, goal))),
   }));
 
   const fixedK = items.reduce((s, f) => s + kOf(ing, f.id, f.g), 0);
@@ -302,6 +315,7 @@ function fillMeal(
       excluded,
       shareK,
       shareP,
+      goal,
     );
     if (!sol) continue;
     if (sol.exact) return { items: sol.items, limited: sol.limited };
@@ -433,7 +447,7 @@ export function buildPlan(
     goalFoodIds
       .map((id, idx) => ({ id, idx }))
       .filter(({ idx }) => (variant + idx) % 3 === mealIdx)
-      .map(({ id }) => ({ id, g: clampPortion(FEATURED_SERVING, boundsOf(ing, id)) }));
+      .map(({ id }) => ({ id, g: clampPortion(FEATURED_SERVING, boundsOf(ing, id, goal)) }));
 
   const featuredMorning = featuredFor(0);
   const fixedMorning: Array<{ id: string; g: number }> = [];
@@ -449,6 +463,7 @@ export function buildPlan(
     morningFillers,
     shareK[0],
     shareP[0],
+    goal,
     new Set(featuredMorning.map((f) => f.id)),
   );
 
@@ -467,6 +482,7 @@ export function buildPlan(
     carbFillers,
     shareK[1],
     shareP[1],
+    goal,
     new Set(featuredAfternoon.map((f) => f.id)),
   );
 
@@ -485,6 +501,7 @@ export function buildPlan(
     nightFillers,
     shareK[2],
     shareP[2],
+    goal,
     new Set(featuredNight.map((f) => f.id)),
   );
 

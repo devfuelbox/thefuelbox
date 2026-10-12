@@ -11,6 +11,10 @@
  * name — the two plan shapes in the database (onboarding stores names like
  * "paneer", admin-edited plans store numeric ids) are both checked.
  *
+ * The caller passes the plan's goal when it knows it, so each food is judged
+ * against its per-goal window (menu_items.goal_portions) for that goal; without
+ * a goal the item's default min_grams/max_grams apply.
+ *
  * The check is deliberately fail-open: if the rows cannot be read, or the
  * `min_grams` / `max_grams` columns are missing (an unmigrated database), the
  * plan is accepted with a console warning rather than by throwing the request
@@ -26,13 +30,15 @@ export type MealPlanCheck =
 export async function validateSavedMealPlan(
   meal_plan: unknown,
   MenuItem: any,
+  goal?: string | null,
 ): Promise<MealPlanCheck> {
   if (meal_plan === undefined || meal_plan === null) return { ok: true };
 
   // Un-migrated database: no window columns to check against — fail open and
   // say so once, so the missing migration is visible in the logs.
+  let attributes: any;
   try {
-    const attributes = MenuItem?.getAttributes?.();
+    attributes = MenuItem?.getAttributes?.();
     if (attributes && (!attributes.min_grams || !attributes.max_grams)) {
       console.warn(
         '[validateSavedMealPlan] min_grams/max_grams columns not found — skipping the plan check (schema not migrated)',
@@ -43,12 +49,14 @@ export async function validateSavedMealPlan(
     return { ok: true };
   }
 
+  // goal_portions is optional: a database that predates it still validates
+  // against the default window rather than skipping the check.
+  const fields = ['id', 'name', 'min_grams', 'max_grams'];
+  if (attributes?.goal_portions) fields.push('goal_portions');
+
   let rows: any[] = [];
   try {
-    rows = await MenuItem.findAll({
-      raw: true,
-      attributes: ['id', 'name', 'min_grams', 'max_grams'],
-    });
+    rows = await MenuItem.findAll({ raw: true, attributes: fields });
   } catch (err) {
     console.warn(
       '[validateSavedMealPlan] could not read menu_items — skipping the plan check:',
@@ -57,7 +65,7 @@ export async function validateSavedMealPlan(
     return { ok: true };
   }
 
-  const violations = findPlanPortionViolations(meal_plan, rows);
+  const violations = findPlanPortionViolations(meal_plan, rows, goal);
   if (violations.length === 0) return { ok: true };
 
   const first = violations[0];

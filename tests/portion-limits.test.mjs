@@ -36,9 +36,11 @@ const HEALTH_OUT = path.join(HERE, ".healthCalculations.mjs");
 const GOALS_OUT = path.join(HERE, ".goalCategories.mjs");
 const SOLVER_OUT = path.join(HERE, ".mealSolver.mjs");
 
-transpile(path.join(ROOT, "src", "lib", "menuPortionLimits.ts"), LIMITS_OUT);
-transpile(path.join(ROOT, "src", "lib", "healthCalculations.ts"), HEALTH_OUT);
 transpile(path.join(ROOT, "src", "lib", "goalCategories.ts"), GOALS_OUT);
+transpile(path.join(ROOT, "src", "lib", "menuPortionLimits.ts"), LIMITS_OUT, {
+  "'./goalCategories'": "'./.goalCategories.mjs'",
+});
+transpile(path.join(ROOT, "src", "lib", "healthCalculations.ts"), HEALTH_OUT);
 transpile(path.join(ROOT, "src", "lib", "mealSolver.ts"), SOLVER_OUT, {
   "'./healthCalculations'": "'./.healthCalculations.mjs'",
   "'./menuPortionLimits'": "'./.menuPortionLimits.mjs'",
@@ -47,10 +49,14 @@ transpile(path.join(ROOT, "src", "lib", "mealSolver.ts"), SOLVER_OUT, {
 
 const {
   PORTION_FIELDS,
+  GOAL_PORTIONS_FIELD,
   MAX_PORTION_G,
   parsePortionLimits,
+  parseGoalPortions,
+  toGoalPortions,
   checkPortionRange,
   portionBounds,
+  portionBoundsForGoal,
   clampPortion,
   violatesPortion,
   portionRuleText,
@@ -109,6 +115,7 @@ const toIng = (rows) => {
       gc: r.gc || [],
       min: r.min ?? null,
       max: r.max ?? null,
+      gp: r.gp || null,
     };
   }
   return map;
@@ -244,6 +251,83 @@ test("the rule text reads like an admin-facing sentence", () => {
   assert.match(portionRuleText("Paneer", { min: 0, max: null }), /no portion limit/);
 });
 
+// ─── per-goal windows (menu_items.goal_portions) ────────────────────────────
+
+test("parseGoalPortions accepts canonical keys and admin labels", () => {
+  assert.deepEqual(parseGoalPortions({ gain: { min: 100, max: 150 } }).value, {
+    gain: { min: 100, max: 150 },
+  });
+  assert.deepEqual(
+    parseGoalPortions({ "Weight Gain": { min: 100 }, "weight_loss": { max: 100 } }).value,
+    { gain: { min: 100, max: null }, loss: { min: null, max: 100 } },
+  );
+  // Blank clears the whole map, like every other limit field.
+  assert.deepEqual(parseGoalPortions(null).value, {});
+  assert.deepEqual(parseGoalPortions("").value, {});
+  assert.deepEqual(parseGoalPortions(undefined).value, {});
+});
+
+test("parseGoalPortions rounds to whole grams and validates each bound", () => {
+  // Numbers and numeric strings, stored whole.
+  assert.deepEqual(parseGoalPortions({ gain: { min: "100", max: 149.6 } }).value, {
+    gain: { min: 100, max: 150 },
+  });
+  // Negative, non-numeric and over-cap grams are rejected.
+  assert.equal(parseGoalPortions({ gain: { min: -1 } }).ok, false);
+  assert.equal(parseGoalPortions({ gain: { min: "lots" } }).ok, false);
+  assert.equal(parseGoalPortions({ gain: { max: MAX_PORTION_G + 1 } }).ok, false);
+});
+
+test("parseGoalPortions rejects bad shapes and unknown goals", () => {
+  assert.equal(parseGoalPortions(["gain"]).ok, false); // array is not a map
+  assert.equal(parseGoalPortions("gain").ok, false);
+  assert.equal(parseGoalPortions({ keto: { min: 50 } }).ok, false);
+  assert.equal(parseGoalPortions({ gain: 50 }).ok, false);
+  assert.equal(parseGoalPortions({ gain: { min: 200, max: 100 } }).ok, false);
+});
+
+test("a blank goal entry and a both-null entry are dropped (inherit default)", () => {
+  assert.deepEqual(parseGoalPortions({ gain: {} }).value, {});
+  assert.deepEqual(parseGoalPortions({ gain: { min: null, max: null } }).value, {});
+  assert.deepEqual(parseGoalPortions({ gain: null }).value, {});
+});
+
+test("reading goal_portions tolerates whatever the DB returns", () => {
+  assert.deepEqual(toGoalPortions(null), {});
+  assert.deepEqual(toGoalPortions('{"gain":{"min":100,"max":150}}'), {
+    gain: { min: 100, max: 150 },
+  });
+  assert.deepEqual(toGoalPortions({ loss: { min: 50, max: 100 }, keto: { min: 1 } }), {
+    loss: { min: 50, max: 100 },
+  });
+  assert.deepEqual(toGoalPortions("{not json"), {});
+  assert.deepEqual(toGoalPortions("gain"), {});
+  assert.deepEqual(toGoalPortions([{ gain: 1 }]), {});
+});
+
+test("portionBoundsForGoal prefers the goal's window, else the default", () => {
+  const row = {
+    min_grams: 50,
+    max_grams: 150,
+    goal_portions: { gain: { min: 100, max: 150 }, loss: { min: 50, max: 100 } },
+  };
+  assert.deepEqual(portionBoundsForGoal(row, "gain"), { min: 100, max: 150 });
+  assert.deepEqual(portionBoundsForGoal(row, "loss"), { min: 50, max: 100 });
+  // Muscle/maintenance have no entry → the default window applies.
+  assert.deepEqual(portionBoundsForGoal(row, "muscle"), { min: 50, max: 150 });
+  assert.deepEqual(portionBoundsForGoal(row, "maintenance"), { min: 50, max: 150 });
+  // Unknown or absent goal → default too.
+  assert.deepEqual(portionBoundsForGoal(row, "keto"), { min: 50, max: 150 });
+  assert.deepEqual(portionBoundsForGoal(row, undefined), { min: 50, max: 150 });
+  // No goal_portions at all → identical to portionBounds.
+  assert.deepEqual(
+    portionBoundsForGoal({ min_grams: 50, max_grams: 150, goal_portions: null }, "gain"),
+    portionBounds({ min_grams: 50, max_grams: 150 }),
+  );
+  // The window semantics (unset/zero = no limit) apply to goal entries too.
+  assert.deepEqual(portionBoundsForGoal({ min_grams: null, max_grams: null, goal_portions: { gain: { min: 0, max: 0 } } }, "gain"), { min: 0, max: null });
+});
+
 // ─── the saved-plan validator (backend save routes) ─────────────────────────
 
 test("validator accepts paneer at 50 g and 150 g", () => {
@@ -268,6 +352,28 @@ test("validator lets a food with no window pass at any grams", () => {
   const rows = MENU_ROWS.map((r) => ({ id: r.id, name: r.name, min_grams: r.min, max_grams: r.max }));
   const plan = { meals: [{ name: "Morning", items: [{ id: "soya", grams: 260 }] }] };
   assert.deepEqual(findPlanPortionViolations(plan, rows), [], "soya has no configured window");
+});
+
+test("validator judges portions against the goal's own window when given one", () => {
+  const rows = MENU_ROWS.map((r) => ({
+    id: r.id,
+    name: r.name,
+    min_grams: r.min,
+    max_grams: r.max,
+    goal_portions:
+      r.name === "Paneer"
+        ? { gain: { min: 100, max: 150 }, loss: { min: 50, max: 100 } }
+        : null,
+  }));
+  const at = (grams) => ({ meals: [{ name: "Morning", items: [{ id: "paneer", grams }] }] });
+  // 75 g sits inside loss (50–100) but outside gain (100–150).
+  assert.deepEqual(findPlanPortionViolations(at(75), rows, "loss"), []);
+  assert.equal(findPlanPortionViolations(at(75), rows, "gain").length, 1);
+  // No goal → the default window (50–150) decides.
+  assert.deepEqual(findPlanPortionViolations(at(75), rows, undefined), []);
+  assert.equal(findPlanPortionViolations(at(200), rows, undefined).length, 1);
+  // Unknown goal falls back to the default window too.
+  assert.deepEqual(findPlanPortionViolations(at(75), rows, "keto"), []);
 });
 
 test("validator accepts both plan shapes (name ids and numeric ids)", () => {
@@ -465,6 +571,51 @@ test("a goal-assigned anchor is preferred over an uncategorized staple", () => {
   assert.equal(plan.limitWarning, null);
 });
 
+test("the solver applies the goal's own window, never just the default", () => {
+  // Paneer belongs to gain AND loss with a different window per goal:
+  // gain 110–200, loss 50–80. The rotating featured serving (100 g) must clamp
+  // into whichever window the active goal has — 110 under gain, 80 under loss —
+  // and every other serving must stay inside that goal's window too.
+  const paneer = {
+    ...MENU_ROWS[0],
+    gc: ["gain", "loss"],
+    gp: { gain: { min: 110, max: 200 }, loss: { min: 50, max: 80 } },
+  };
+  const ing = toIng([paneer, ...MENU_ROWS.slice(1)]);
+  for (let v = 0; v < 4; v++) {
+    const gain = buildPlan(ANSWERS("gain"), v, ing);
+    const gainPaneer = mealsOf(gain).filter((it) => it.id === "paneer");
+    assert.ok(gainPaneer.length >= 1, `gain v${v}: paneer should appear`);
+    for (const it of gainPaneer) {
+      assert.ok(
+        it.g >= 110 && it.g <= 200,
+        `gain v${v}: paneer ${it.g} g must stay inside 110–200`,
+      );
+    }
+
+    const loss = buildPlan(ANSWERS("loss"), v, ing);
+    const lossPaneer = mealsOf(loss).filter((it) => it.id === "paneer");
+    assert.ok(lossPaneer.length >= 1, `loss v${v}: paneer should appear`);
+    for (const it of lossPaneer) {
+      assert.ok(
+        it.g >= 50 && it.g <= 80,
+        `loss v${v}: paneer ${it.g} g must stay inside 50–80`,
+      );
+    }
+  }
+});
+
+test("an uncategorized food with per-goal windows still applies them by goal", () => {
+  // Soya has no goal categories (it is offered under every goal) but can still
+  // carry a per-goal window. The solver must respect it for the active goal.
+  const soya = { ...MENU_ROWS[1], gp: { gain: { min: 200, max: 250 } } };
+  const ing = toIng([soya, ...MENU_ROWS.slice(0, 1), ...MENU_ROWS.slice(2)]);
+  const plan = buildPlan(ANSWERS("gain"), 0, ing);
+  for (const it of mealsOf(plan).filter((x) => x.id === "soya")) {
+    assert.ok(it.g >= 200 && it.g <= 250, `gain: soya ${it.g} g must stay inside 200–250`);
+  }
+});
+
 // ─── pricing still covers the food it prices ────────────────────────────────
 
 test("pricing covers the food cost of the delivered meals", () => {
@@ -499,6 +650,25 @@ test("both menu routes accept the two fields", () => {
       assert.ok(src.includes(`'${field}'`), `menu/${route} does not allow ${field}`);
     }
   }
+});
+
+test("both menu routes accept and validate goal_portions", () => {
+  for (const route of ["route.ts", path.join("[id]", "route.ts")]) {
+    const src = fs.readFileSync(path.join(ROOT, "src", "app", "api", "menu", route), "utf8");
+    assert.ok(src.includes(`'${GOAL_PORTIONS_FIELD}'`), `menu/${route} does not allow ${GOAL_PORTIONS_FIELD}`);
+    assert.ok(src.includes("parseGoalPortions"), `menu/${route} does not validate ${GOAL_PORTIONS_FIELD}`);
+  }
+});
+
+test("the model and seed files define the goal_portions column", () => {
+  const db = fs.readFileSync(path.join(ROOT, "src", "lib", "db", "index.ts"), "utf8");
+  assert.ok(/goal_portions:\s*\{[^}]*DataTypes\.JSON/.test(db),
+    "db model should define goal_portions as JSON");
+  const seedTs = fs.readFileSync(path.join(ROOT, "scripts", "seed_database.ts"), "utf8");
+  assert.ok(seedTs.includes("goal_portions"), "seed_database.ts model is missing goal_portions");
+  const seedSql = fs.readFileSync(path.join(ROOT, "scripts", "seed_data.sql"), "utf8");
+  assert.ok(/`goal_portions`\s+JSON/i.test(seedSql),
+    "seed_data.sql DDL is missing goal_portions");
 });
 
 test("every meal-plan save route validates before it persists", () => {

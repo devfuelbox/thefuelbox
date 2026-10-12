@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getDbModels } from '@/lib/db';
-import { PORTION_FIELDS, parsePortionLimits, checkPortionRange } from '@/lib/menuPortionLimits';
+import {
+  PORTION_FIELDS,
+  GOAL_PORTIONS_FIELD,
+  parsePortionLimits,
+  parseGoalPortions,
+  checkPortionRange,
+} from '@/lib/menuPortionLimits';
 import { parseGoalCategories } from '@/lib/goalCategories';
 
 export async function GET() {
@@ -22,7 +28,7 @@ export async function GET() {
 const ALLOWED_FIELDS = [
   'name', 'description', 'price', 'calories', 'protein_g', 'carbs_g',
   'fat_g', 'fiber_g', 'diet', 'category', 'is_available', 'cookable',
-  'min_grams', 'max_grams', 'goal_categories', 'image_url',
+  'min_grams', 'max_grams', 'goal_categories', 'goal_portions', 'image_url',
 ] as const;
 
 type AllowedField = (typeof ALLOWED_FIELDS)[number];
@@ -97,13 +103,23 @@ export async function POST(req: Request) {
       sanitised.goal_categories = goals.categories;
     }
 
+    // Per-goal portion windows — validated and canonicalised to known goal
+    // keys; a blank goal entry is dropped so it inherits the default window.
+    if ('goal_portions' in body) {
+      const portions = parseGoalPortions(body.goal_portions);
+      if (!portions.ok) {
+        return NextResponse.json({ message: portions.message }, { status: 400 });
+      }
+      sanitised.goal_portions = portions.value;
+    }
+
     const { MenuItem } = await getDbModels();
     // Skip the portion fields if their columns are not there yet — the schema
     // sync adds them on first access, but never fail a create over it.
     try {
       const attributes = (MenuItem as any).getAttributes?.();
       if (attributes) {
-        for (const field of [...PORTION_FIELDS, 'goal_categories'] as const) {
+        for (const field of [...PORTION_FIELDS, 'goal_categories', GOAL_PORTIONS_FIELD] as const) {
           if (!attributes[field] && field in sanitised) {
             delete (sanitised as any)[field];
           }

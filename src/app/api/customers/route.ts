@@ -65,9 +65,9 @@ export async function POST(req: Request) {
     const { Customer, MenuItem } = await getDbModels();
 
     // Same rule as the onboarding save: a hand-built plan must stay inside
-    // every food's configured portion window.
+    // every food's configured portion window — the goal's when it is present.
     if (meal_plan) {
-      const check = await validateSavedMealPlan(meal_plan, MenuItem);
+      const check = await validateSavedMealPlan(meal_plan, MenuItem, goal);
       if (!check.ok) {
         return NextResponse.json({ message: check.message }, { status: 400 });
       }

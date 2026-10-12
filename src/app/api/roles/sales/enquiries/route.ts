@@ -14,7 +14,7 @@ export async function POST(req: Request) {
     // Reject a crafted plan whose portions fall outside the configured windows
     // before anything is stored.
     if (body.meal_plan !== undefined && body.meal_plan !== null) {
-      const check = await validateSavedMealPlan(body.meal_plan, MenuItem);
+      const check = await validateSavedMealPlan(body.meal_plan, MenuItem, body.goal);
       if (!check.ok) {
         return NextResponse.json({ message: check.message }, { status: 400 });
       }
@@ -121,9 +121,9 @@ export async function PATCH(req: Request) {
     }
 
     // Only a meal plan actually being replaced needs checking; status-only
-    // updates never touch stored portions.
+    // updates never touch stored portions. The goal in force is the enquiry's.
     if (updates.meal_plan !== undefined && updates.meal_plan !== null) {
-      const check = await validateSavedMealPlan(updates.meal_plan, MenuItem);
+      const check = await validateSavedMealPlan(updates.meal_plan, MenuItem, updates.goal ?? existing.goal);
       if (!check.ok) {
         return NextResponse.json({ message: check.message }, { status: 400 });
       }

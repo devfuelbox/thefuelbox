@@ -30,7 +30,8 @@ import {
 } from "@/lib/mealSolver";
 import {
   clampPortion,
-  portionBounds,
+  portionBoundsForGoal,
+  toGoalPortions,
 } from "@/lib/menuPortionLimits";
 
 // ─── FUELBOX BRAND TOKENS (matches website theme) ───────
@@ -117,6 +118,7 @@ const foodsFromRows = (rows: any[]): Record<string, IngredientData> => {
       gc: toGoalCategoryList(row.goal_categories),
       min: numOrNull(row.min_grams),
       max: numOrNull(row.max_grams),
+      gp: toGoalPortions(row.goal_portions),
     };
   }
   return ing;
@@ -538,19 +540,23 @@ function Result({
   const [vary, setVary] = useState(0);
   const [freq, setFreq] = useState(a.freq || 1);
 
+  // The effective goal key — the same one the solver and the per-goal portion
+  // windows resolve against (a goal without its own limits inherits the
+  // default min/max of each food).
+  const goalKey = a.goal || "loss";
+
   // The foods offered for the goal this user picked. A food qualifies when it
   // has no goal categories (uncategorized — how every item starts) or when its
   // list includes the selected goal (see belongsToGoal). This same set drives
   // the auto-built plan and the "add food" dropdown, so the meals on screen
   // are always made of the foods the user's goal is supposed to show.
   const goalFoods = useMemo(() => {
-    const goal = a.goal || "loss";
     const keys = new Set<string>();
     for (const [id, d] of Object.entries(ing)) {
-      if (belongsToGoal(d.gc, goal)) keys.add(id);
+      if (belongsToGoal(d.gc, goalKey)) keys.add(id);
     }
     return keys;
-  }, [ing, a.goal]);
+  }, [ing, goalKey]);
 
   const plan = buildPlan(a, vary, ing, goalFoods);
 
@@ -648,10 +654,10 @@ function Result({
     // The same clamp the solver applies: the "add" dropdown always previews the
     // portion it would actually add, never an amount below/above the food's limits.
     const d = ing[itemId];
-    const grams = d ? clampPortion(DEFAULT_ADD_GRAMS, portionBounds({ min_grams: d.min, max_grams: d.max })) : DEFAULT_ADD_GRAMS;
+    const grams = d ? clampPortion(DEFAULT_ADD_GRAMS, portionBoundsForGoal({ min_grams: d.min, max_grams: d.max, goal_portions: d.gp }, goalKey)) : DEFAULT_ADD_GRAMS;
     const foodKcal = Math.round(kOf(ing, itemId, grams));
     return current + foodKcal <= perMealKcalOf(mealName);
-  }, [planToUse.meals, ing, perMealKcalOf]);
+  }, [planToUse.meals, ing, perMealKcalOf, goalKey]);
 
   const bmiLine = () => {
     const b = metrics.bmi.toFixed(1);
@@ -728,7 +734,7 @@ function Result({
     if (!d) return;
     // The food's configured window (when set) clamps the default serving, so a
     // manual addition is always a legal portion — never below min, never past max.
-    const bounds = portionBounds({ min_grams: d.min, max_grams: d.max });
+    const bounds = portionBoundsForGoal({ min_grams: d.min, max_grams: d.max, goal_portions: d.gp }, goalKey);
     const defaultQty = clampPortion(DEFAULT_ADD_GRAMS, bounds);
     const targetMeal = mealName || cov.delNames[0] || planToUse.meals[0]?.name;
     if (!targetMeal) return;
@@ -1212,7 +1218,7 @@ function Result({
                         // label never quotes an illegal plate.
                         const grams = clampPortion(
                           DEFAULT_ADD_GRAMS,
-                          portionBounds({ min_grams: d.min, max_grams: d.max }),
+                          portionBoundsForGoal({ min_grams: d.min, max_grams: d.max, goal_portions: d.gp }, goalKey),
                         );
                         const kcal = Math.round(kOf(ing, id, grams));
                         return (

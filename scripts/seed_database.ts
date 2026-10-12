@@ -64,6 +64,9 @@ async function seed() {
       // Fitness goals this food is assigned to — JSON array of goal keys;
       // NULL/[] means uncategorized (offered under every goal)
       goal_categories: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
+      // Per-goal serving windows — JSON map goal → { min, max }; NULL means the
+      // item uses the default min_grams/max_grams under every goal
+      goal_portions: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
       image_url: { type: DataTypes.STRING, defaultValue: '' },
     }, { underscored: true });
 

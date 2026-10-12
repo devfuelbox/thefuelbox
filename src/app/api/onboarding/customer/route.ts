@@ -58,9 +58,10 @@ export async function POST(req: Request) {
     const { Customer, MenuItem } = await getDbModels();
 
     // The onboarding clamps every gram it generates, but a hand-built request
-    // must not be able to write a plan outside a food's configured window.
+    // must not be able to write a plan outside a food's configured window —
+    // judged against the goal's own portion limits when one is present.
     if (meal_plan) {
-      const check = await validateSavedMealPlan(meal_plan, MenuItem);
+      const check = await validateSavedMealPlan(meal_plan, MenuItem, goal);
       if (!check.ok) {
         return NextResponse.json({ success: false, error: check.message }, { status: 400 });
       }

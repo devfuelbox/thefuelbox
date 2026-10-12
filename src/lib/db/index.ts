@@ -71,6 +71,11 @@ export function defineModels(sequelize: Sequelize) {
     // so an unassigned item behaves exactly as it did before this column.
     // syncSchema() adds it to existing databases.
     goal_categories: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
+    // Per-goal serving windows, e.g. { "gain": { "min": 100, "max": 150 } }.
+    // A goal with an entry overrides the default min_grams/max_grams for that
+    // goal only; every other goal (and NULL) falls back to them, so existing
+    // items are unchanged. syncSchema() adds it to existing databases.
+    goal_portions: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
     image_url: { type: DataTypes.STRING, defaultValue: '' },
   }, { underscored: true });
 

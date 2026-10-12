@@ -43,7 +43,7 @@ export async function POST(req: Request) {
     // A meal plan persisted here must respect every item's portion window —
     // validate the raw payload before the array-only coercion below stores it.
     if (body.meal_plan !== undefined && body.meal_plan !== null) {
-      const check = await validateSavedMealPlan(body.meal_plan, MenuItem);
+      const check = await validateSavedMealPlan(body.meal_plan, MenuItem, body.goal);
       if (!check.ok) {
         return NextResponse.json({ message: check.message }, { status: 400 });
       }
@@ -123,9 +123,10 @@ export async function PATCH(req: Request) {
     if (!existing) return NextResponse.json({ message: 'Not found' }, { status: 404 });
 
     // Only plans actually being replaced need checking; a payment-only PATCH
-    // leaves the stored plan untouched.
+    // leaves the stored plan untouched. The goal in force is the enquiry's,
+    // since the replacement plan replaces it entirely.
     if ('meal_plan' in updates && updates.meal_plan !== undefined && updates.meal_plan !== null) {
-      const check = await validateSavedMealPlan(updates.meal_plan, MenuItem);
+      const check = await validateSavedMealPlan(updates.meal_plan, MenuItem, updates.goal ?? existing.goal);
       if (!check.ok) {
         return NextResponse.json({ message: check.message }, { status: 400 });
       }

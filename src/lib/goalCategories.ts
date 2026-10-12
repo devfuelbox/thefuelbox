@@ -44,6 +44,17 @@ const CANONICAL = GOAL_CATEGORIES.reduce<Record<string, GoalCategory>>((acc, slu
   return acc;
 }, {});
 
+/**
+ * Collapse any spelling of a goal (key or admin label, any case) to its
+ * canonical key, or null when it is not a known goal. Shared with
+ * menuPortionLimits so the per-goal portion keys accept exactly the same
+ * spellings the picker and the request validator accept.
+ */
+export function toGoalCategory(value: unknown): GoalCategory | null {
+  if (typeof value !== 'string') return null;
+  return CANONICAL[slugOf(value)] ?? null;
+}
+
 export type GoalCategoryParseResult =
   | { ok: true; categories: GoalCategory[] }
   | { ok: false; message: string };

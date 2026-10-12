@@ -22,8 +22,9 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     }
 
     // The admin UI clamps every gram it saves, but only the API can stop a
-    // crafted request from writing a portion outside a food's window.
-    const check = await validateSavedMealPlan(meal_plan, MenuItem);
+    // crafted request from writing a portion outside a food's window. The
+    // customer's goal decides which per-goal window applies.
+    const check = await validateSavedMealPlan(meal_plan, MenuItem, customer.goal);
     if (!check.ok) {
       return NextResponse.json({ success: false, error: check.message }, { status: 400 });
     }

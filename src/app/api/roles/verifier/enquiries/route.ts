@@ -122,9 +122,10 @@ export async function PATCH(req: Request) {
       fields.verifier_notes = updates.verifier_notes || '';
     } else if (updates.action === 'save_plan') {
       // Only a plan actually being replaced is checked; verify/assign_chef/
-      // request_changes never touch stored portions.
+      // request_changes never touch stored portions. The goal in force is the
+      // enquiry's, so the plan's portions are judged against its own windows.
       if (updates.meal_plan !== undefined && updates.meal_plan !== null) {
-        const check = await validateSavedMealPlan(updates.meal_plan, MenuItem);
+        const check = await validateSavedMealPlan(updates.meal_plan, MenuItem, updates.goal ?? existing.goal);
         if (!check.ok) {
           return NextResponse.json({ message: check.message }, { status: 400 });
         }

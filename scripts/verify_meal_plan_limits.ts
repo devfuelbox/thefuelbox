@@ -18,7 +18,8 @@ import path from 'path';
 import { getDbModels } from '../src/lib/db';
 import {
   findPlanPortionViolations,
-  portionBounds,
+  portionBoundsForGoal,
+  toGoalPortions,
   violatesPortion,
   type MenuLimitRow,
 } from '../src/lib/menuPortionLimits';
@@ -69,6 +70,7 @@ function foodsFromRows(rows: any[]): Record<string, IngredientData> {
       gc: toGoalCategoryList(row.goal_categories),
       min: row.min_grams == null ? null : Number(row.min_grams),
       max: row.max_grams == null ? null : Number(row.max_grams),
+      gp: toGoalPortions(row.goal_portions),
     };
   }
   return ing;
@@ -92,6 +94,17 @@ async function main() {
     const gc = toGoalCategoryList(paneer.goal_categories);
     checkBase('goal_categories include muscle (the goal under test)', gc.includes('muscle'), gc.join(', '));
     checkBase('Paneer is in stock', inStock.includes(paneer));
+    // No per-goal limits configured on this database yet — the muscle window
+    // must fall back to the item's default rather than turning unlimited.
+    const muscleBounds = portionBoundsForGoal(
+      { min_grams: paneer.min_grams, max_grams: paneer.max_grams, goal_portions: paneer.goal_portions },
+      'muscle',
+    );
+    checkBase(
+      "Paneer's muscle window falls back to its default 50–150 g",
+      muscleBounds.min === 50 && muscleBounds.max === 150,
+      JSON.stringify(muscleBounds),
+    );
   }
 
   // ── 2. Soya: no window, no categories (do not assume Paneer's limits) ───
@@ -132,7 +145,10 @@ async function main() {
     for (const meal of plan.meals) {
       for (const it of meal.items) {
         const d = ing[it.id];
-        const bounds = portionBounds({ min_grams: d.min, max_grams: d.max });
+        const bounds = portionBoundsForGoal(
+          { min_grams: d.min, max_grams: d.max, goal_portions: d.gp },
+          answers.goal,
+        );
         if (violatesPortion(it.g, bounds)) {
           planOk = false;
           console.error(`    ✖ variant ${v} ${meal.name}: ${it.id} at ${it.g} g outside ${JSON.stringify(bounds)}`);
@@ -166,6 +182,7 @@ async function main() {
     name: r.name,
     min_grams: r.min_grams,
     max_grams: r.max_grams,
+    goal_portions: r.goal_portions,
   }));
 
   checkBase(

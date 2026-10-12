@@ -7,6 +7,7 @@ import {
   Edit2,
   Trash2,
   X,
+  Check,
   ChefHat,
   Eye,
   EyeOff,
@@ -14,7 +15,7 @@ import {
   Image as ImageIcon,
   Upload,
 } from 'lucide-react';
-import { GOAL_CATEGORY_OPTIONS, GOAL_CATEGORY_LABELS } from '@/lib/goalCategories';
+import { GOAL_CATEGORY_OPTIONS, GOAL_CATEGORY_LABELS, type GoalCategory } from '@/lib/goalCategories';
 
 type PriceUnit = 'kg' | 'piece';
 
@@ -38,6 +39,7 @@ interface MenuItem {
   min_grams?: number | null;
   max_grams?: number | null;
   goal_categories?: string[] | null;
+  goal_portions?: Record<string, { min: number | null; max: number | null }> | null;
   image_url?: string | null;
 }
 
@@ -83,16 +85,77 @@ const getDisplayImageUrl = (url?: string | null) => {
   return `/images/${url.replace(/^\//, '')}`;
 };
 
-// Goal categories — the fitness goals this food belongs to. An item can be in
-// any number of them. Leave every box unchecked to keep the food uncategorized,
-// which the onboarding shows under every goal (so nothing changes until an
-// admin assigns a category).
+// One goal's portion window in the form. Both sides nullable: blank means the
+// goal inherits the item's default Portion Size instead of having its own.
+type GoalPortionInput = { min: number | null; max: number | null };
+
+/**
+ * Build the `goal_portions` value sent to /api/menu from the form state.
+ * Only goals that are assigned AND have at least one limit typed produce an
+ * entry; a goal with blank Min/Max (or unchecked) is omitted so it inherits
+ * the default window on the server side too.
+ */
+const buildGoalPortions = (
+  categories: string[] | null | undefined,
+  portions: Record<string, GoalPortionInput> | null | undefined,
+): Record<string, { min: number | null; max: number | null }> => {
+  const out: Record<string, { min: number | null; max: number | null }> = {};
+  const cats = Array.isArray(categories) ? categories : [];
+  for (const slug of cats) {
+    const p = portions?.[slug];
+    if (p && (p.min != null || p.max != null)) {
+      out[slug] = { min: p.min ?? null, max: p.max ?? null };
+    }
+  }
+  return out;
+};
+
+/** Read a stored `menu_items.goal_portions` JSON value into the form shape. */
+const readGoalPortions = (raw: unknown): Record<string, GoalPortionInput> => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Record<string, GoalPortionInput> = {};
+  for (const [slug, entry] of Object.entries(raw as Record<string, unknown>)) {
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as Record<string, unknown>;
+    const num = (v: unknown): number | null =>
+      typeof v === 'number' ? v : v == null || v === '' ? null : Number(v);
+    out[slug] = { min: num(e.min), max: num(e.max) };
+  }
+  return out;
+};
+
+/** First min>max mistake in the per-goal windows, or null when they are sane. */
+const goalPortionError = (
+  categories: string[] | null | undefined,
+  portions: Record<string, GoalPortionInput> | null | undefined,
+): string | null => {
+  const cats = Array.isArray(categories) ? categories : [];
+  for (const slug of cats) {
+    const p = portions?.[slug];
+    if (p && p.min != null && p.max != null && p.min > p.max) {
+      const label = GOAL_CATEGORY_LABELS[slug as GoalCategory] || slug;
+      return `Minimum cannot be greater than maximum quantity for ${label}.`;
+    }
+  }
+  return null;
+};
+
+// Goal categories — the fitness goals this food belongs to (an item can be in
+// any number of them; leave every box unchecked to keep it uncategorized, which
+// the onboarding shows under every goal) — plus a per-goal serving window.
+// A goal with its own Min/Max uses those numbers only for that goal; a blank
+// window inherits the item's default Portion Size. Typing a limit assigns the
+// goal automatically, so a limit can never be silently dropped.
 const GoalCategoryPicker = ({
   value,
   onChange,
+  portions,
+  onPortionsChange,
 }: {
   value: string[];
   onChange: (next: string[]) => void;
+  portions: Record<string, GoalPortionInput>;
+  onPortionsChange: (next: Record<string, GoalPortionInput>) => void;
 }) => {
   const toggle = (slug: string) =>
     onChange(
@@ -101,36 +164,78 @@ const GoalCategoryPicker = ({
         : [...value, slug]
     );
 
+  const setPortion = (slug: string, key: 'min' | 'max', grams: number | null) => {
+    const current = portions[slug] || { min: null, max: null };
+    onPortionsChange({ ...portions, [slug]: { ...current, [key]: grams } });
+    if (grams != null && !value.includes(slug)) onChange([...value, slug]);
+  };
+
   return (
     <div className="rounded-xl bg-gray-50/70 border border-gray-100 p-3 sm:p-4 space-y-3">
       <div className="flex items-center gap-2">
         <div className="w-1 h-4 bg-brand-600 rounded-full shrink-0" />
-        <h3 className="text-sm font-bold text-gray-900">Goal Categories</h3>
-        <span className="text-xs text-gray-500 ml-auto hidden sm:inline">one or more</span>
+        <h3 className="text-sm font-bold text-gray-900">Goal Categories & Portion Limits</h3>
       </div>
-      <div className="grid grid-cols-2 gap-2 sm:gap-3">
+      <p className="text-[11px] text-gray-400 leading-relaxed">
+        Tick the goals this food is for and set a serving window (grams) per goal. A goal
+        left blank uses the default Portion Size above; leave all unchecked to show this
+        food under every goal with the default window.
+      </p>
+      <div className="space-y-2">
         {GOAL_CATEGORY_OPTIONS.map(({ value: slug, label }) => {
           const active = value.includes(slug);
+          const p = portions[slug] || { min: null, max: null };
           return (
-            <button
+            <div
               key={slug}
-              type="button"
-              onClick={() => toggle(slug)}
-              className={`px-2 sm:px-3 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${
-                active
-                  ? 'border-brand-600 bg-brand-50 text-brand-700'
-                  : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 active:bg-gray-50'
+              className={`rounded-xl border-2 p-3 transition ${active
+                ? 'border-brand-600 bg-brand-50/40'
+                : 'border-gray-200 bg-white'
               }`}
             >
-              {label}
-            </button>
+              <button
+                type="button"
+                onClick={() => toggle(slug)}
+                aria-pressed={active}
+                className="flex items-center gap-2 w-full text-left"
+              >
+                <span className={`h-4 w-4 shrink-0 rounded border-2 flex items-center justify-center ${active ? 'bg-brand-600 border-brand-600' : 'border-gray-300 bg-white'}`}>
+                  {active && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+                </span>
+                <span className={`text-xs sm:text-sm font-bold ${active ? 'text-brand-700' : 'text-gray-600'}`}>
+                  {label}
+                </span>
+              </button>
+              <div className="grid grid-cols-2 gap-2 sm:gap-3 mt-2.5">
+                <div className="min-w-0">
+                  <label className="block text-[11px] font-semibold text-gray-500 mb-1">Min (g)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={p.min ?? ''}
+                    onChange={(e) => setPortion(slug, 'min', parseGrams(e.target.value))}
+                    placeholder="Default"
+                    className="w-full min-w-0 px-2.5 py-2 bg-white border border-gray-200 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-gray-400"
+                  />
+                </div>
+                <div className="min-w-0">
+                  <label className="block text-[11px] font-semibold text-gray-500 mb-1">Max (g)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={p.max ?? ''}
+                    onChange={(e) => setPortion(slug, 'max', parseGrams(e.target.value))}
+                    placeholder="Default"
+                    className="w-full min-w-0 px-2.5 py-2 bg-white border border-gray-200 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-gray-400"
+                  />
+                </div>
+              </div>
+            </div>
           );
         })}
       </div>
-      <p className="text-[11px] text-gray-400 mt-1.5 leading-relaxed">
-        Shown to onboarding users whose goal matches. Leave all unchecked to show this
-        food under every goal.
-      </p>
     </div>
   );
 };
@@ -180,6 +285,8 @@ export default function AdminMenuPage() {
     max_grams: null as number | null,
     // Fitness goals this food belongs to; [] = uncategorized (every goal)
     goal_categories: [] as string[],
+    // Per-goal serving windows; a blank goal inherits the default above
+    goal_portions: {} as Record<string, GoalPortionInput>,
   });
 
   // Image upload states - Add
@@ -340,6 +447,7 @@ export default function AdminMenuPage() {
       min_grams: item.min_grams ?? null,
       max_grams: item.max_grams ?? null,
       goal_categories: Array.isArray(item.goal_categories) ? item.goal_categories : [],
+      goal_portions: readGoalPortions(item.goal_portions),
     });
     setEditImageFile(null);
     setEditImagePreview(getDisplayImageUrl(item.image_url));
@@ -363,6 +471,12 @@ export default function AdminMenuPage() {
       editingItem.min_grams > editingItem.max_grams
     ) {
       alert('Minimum quantity cannot be greater than maximum quantity.');
+      return;
+    }
+
+    const portionError = goalPortionError(editingItem.goal_categories, editingItem.goal_portions);
+    if (portionError) {
+      alert(portionError);
       return;
     }
 
@@ -394,6 +508,7 @@ export default function AdminMenuPage() {
         min_grams: editingItem.min_grams ?? null,
         max_grams: editingItem.max_grams ?? null,
         goal_categories: Array.isArray(editingItem.goal_categories) ? editingItem.goal_categories : [],
+        goal_portions: buildGoalPortions(editingItem.goal_categories, editingItem.goal_portions),
       };
       // Only include image_url if a new image was uploaded - keeps existing if unchanged
       // Save exact Blob URL (e.g., https://...blob.vercel-storage.com/...) without conversion
@@ -658,6 +773,12 @@ export default function AdminMenuPage() {
       return;
     }
 
+    const portionError = goalPortionError(newItem.goal_categories, newItem.goal_portions);
+    if (portionError) {
+      alert(portionError);
+      return;
+    }
+
     try {
       setUploading(true);
       let imageUrl: string | undefined = undefined;
@@ -665,9 +786,11 @@ export default function AdminMenuPage() {
         imageUrl = await uploadImage(newImageFile);
       }
 
-      // Save exact Blob URL without conversion
+      // Save exact Blob URL without conversion; goal_portions is rebuilt from
+      // the assigned goals so a blank goal never sends a stale window.
       const payload = {
         ...newItem,
+        goal_portions: buildGoalPortions(newItem.goal_categories, newItem.goal_portions),
         ...(imageUrl ? { image_url: imageUrl } : {}),
       };
 
@@ -719,6 +842,7 @@ export default function AdminMenuPage() {
         min_grams: null,
         max_grams: null,
         goal_categories: [],
+        goal_portions: {},
       });
       if (newImagePreview && newImagePreview.startsWith('blob:')) URL.revokeObjectURL(newImagePreview);
       setNewImageFile(null);
@@ -1215,6 +1339,10 @@ export default function AdminMenuPage() {
                   onChange={(goal_categories) =>
                     setEditingItem({ ...editingItem, goal_categories })
                   }
+                  portions={editingItem.goal_portions || {}}
+                  onPortionsChange={(goal_portions) =>
+                    setEditingItem({ ...editingItem, goal_portions })
+                  }
                 />
 
                 {/* STOCK STATUS */}
@@ -1486,6 +1614,8 @@ export default function AdminMenuPage() {
               <GoalCategoryPicker
                 value={newItem.goal_categories}
                 onChange={(goal_categories) => setNewItem({ ...newItem, goal_categories })}
+                portions={newItem.goal_portions}
+                onPortionsChange={(goal_portions) => setNewItem({ ...newItem, goal_portions })}
               />
 
               {/* STOCK */}
