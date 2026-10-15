@@ -1,8 +1,19 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Home, Utensils, Receipt } from "lucide-react";
+import FuelBoxLogo from "@/components/FuelBoxLogo";
+import { slideInLeft, slideInRight, EASE_OUT } from "@/lib/motion";
+
+// The 3D fitness backdrop is lazy + client-only so three.js never enters the
+// server bundle or the critical rendering path.
+const FitnessScene = dynamic(
+  () => import("@/components/three/FitnessScene"),
+  { ssr: false },
+);
 import { useAuthStore } from "@/store/authStore";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import { onboardingSupabase } from "@/lib/onboardingSupabaseClient";
@@ -34,7 +45,10 @@ import {
   toGoalPortions,
 } from "@/lib/menuPortionLimits";
 
-// ─── FUELBOX BRAND TOKENS (matches website theme) ───────
+// ─── FUELBOX ONBOARDING TOKENS (cream + forest, matches the reference) ─
+// The tokens keep their original names so every existing helper renders with
+// the new palette; only the values changed. `yolk` is the forest primary, and
+// the primary button paints its label in `card` (paper) so the contrast holds.
 const C = {
   ink: "#111827", // gray-900 – main dark text
   card: "#FFFFFF", // white card bg
@@ -47,8 +61,15 @@ const C = {
   nonveg: "#DC2626", // red-600
   energy: "#EA580C", // energy-600 – orange accent
 };
-const FONT_DISPLAY = "'Poppins', sans-serif";
-const FONT_BODY = "'Inter', sans-serif";
+const FOREST = "#1F3D2B";
+const FOREST_2 = "#2C5540";
+const CREAM = "#F3EDDF";
+const PAPER = "#FBF8F1";
+const TINT = "#E6EEDF"; // soft green fill for selected / protein
+const CTA_GREEN = "#1E7A46";
+const FONT_DISPLAY = "'Lora', Georgia, 'Times New Roman', serif";
+const FONT_BODY =
+  "'Work Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 
 // ─── BUSINESS CONFIG ─────────────────────────────────────
 const WA_NUMBER = "919384302527"; // Ajith
@@ -155,6 +176,40 @@ const ACTIVITY = {
   active: { label: "On my feet", sub: "Walking, light activity daily" },
   gym: { label: "Gym regular", sub: "Training 3+ days a week" },
 };
+
+// ─── WIZARD INPUTS → ACTIVITY ─────────────────────────────
+// The wizard asks one question — what your day is like (workouts removed).
+const DAY_OPTS: Record<string, { base: number; label: string; sub: string }> = {
+  sit: { base: 1.2, label: "Mostly sitting", sub: "Office, IT, student" },
+  feet: { base: 1.35, label: "On my feet a lot", sub: "Shop, teacher, sales" },
+  phys: { base: 1.5, label: "Physical work", sub: "Labour, delivery, farm" },
+};
+// Bucket into the app's three-level key for compatibility.
+function activityFromDayWork(day: string | null, _work?: string | null) {
+  const base = (day && DAY_OPTS[day]?.base) || 1.2;
+  const multiplier = Math.round(base * 1000) / 1000;
+  const key: "sedentary" | "active" | "gym" =
+    multiplier < 1.2875 ? "sedentary" : multiplier < 1.4625 ? "active" : "gym";
+  return { multiplier, key };
+}
+
+// Height / weight unit conversions. The app stores cm and kg; the wizard only
+// converts at the edges so every calculation stays in metric.
+const CM_PER_FT = 30.48;
+const KG_PER_LB = 0.45359237;
+const round2 = (x: number) => Math.round(x * 100) / 100;
+
+// Dropdown ranges for the body measurements (used by both the selects and the
+// step-1 validation so the two can never drift apart).
+const AGE_MIN = 18;
+const AGE_MAX = 80;
+const HEIGHT_MIN = 120;
+const HEIGHT_MAX = 220;
+const WEIGHT_MIN = 30;
+const WEIGHT_MAX = 200;
+// A plain decimal number: digits with an optional decimal part. Rejects "70kg",
+// "abc" and "1e2" — the same shape the reference calculator accepted.
+const NUM_RE = /^\d+(\.\d+)?$/;
 const FREQS = {
   1: {
     label: "1 meal a day",
@@ -202,6 +257,10 @@ const fmtG = (g: number) => {
   const r = Math.round(g * 10) / 10;
   return Number.isInteger(r) ? `${r}` : r.toFixed(1);
 };
+
+// Groups a 10-digit mobile as "98765 43210" for display only; state stays raw.
+const fmtPhone = (d: string) =>
+  d.length > 5 ? d.slice(0, 5) + " " + d.slice(5) : d;
 
 // Quantities render in grams — the solver's unit — so a portion size is never
 // guessed from a hardcoded table. The allowed serving window itself comes from
@@ -355,9 +414,13 @@ function OptionCard({
   right?: React.ReactNode;
 }) {
   return (
-    <button
+    <motion.button
       onClick={onClick}
       className="w-full text-left"
+      whileTap={{ scale: 0.985 }}
+      whileHover={selected ? undefined : { y: -1 }}
+      animate={selected ? { scale: 1.01 } : { scale: 1 }}
+      transition={{ duration: 0.16, ease: EASE_OUT }}
       style={{
         background: selected ? "rgba(22,163,74,0.08)" : C.card,
         border: `1.5px solid ${selected ? C.yolk : C.line}`,
@@ -411,7 +474,7 @@ function OptionCard({
           }}
         />
       )}
-    </button>
+    </motion.button>
   );
 }
 
@@ -492,27 +555,583 @@ function PrimaryBtn({
   onClick: () => void;
   disabled?: boolean;
 }) {
+  const reduce = useReducedMotion();
   return (
-    <button
+    <motion.button
       onClick={onClick}
       disabled={disabled}
       className="w-full"
+      whileHover={disabled || reduce ? undefined : { y: -2 }}
+      whileTap={disabled || reduce ? undefined : { scale: 0.985 }}
+      transition={{ duration: 0.18, ease: EASE_OUT }}
       style={{
         background: disabled ? C.line : C.yolk,
-        color: disabled ? C.muted : C.ink,
+        color: disabled ? C.muted : PAPER,
         fontFamily: FONT_BODY,
-        fontWeight: 700,
+        fontWeight: 600,
         fontSize: 16,
         border: "none",
         borderRadius: 12,
-        padding: "16px",
+        padding: "15px",
         cursor: disabled ? "not-allowed" : "pointer",
-        letterSpacing: "0.02em",
-        transition: "opacity 160ms",
+        letterSpacing: "0.01em",
+        transition: "background 150ms, transform 120ms",
       }}
     >
       {children}
-    </button>
+    </motion.button>
+  );
+}
+
+// ─── 2-STEP WIZARD HELPERS (cream + forest, matches the reference) ──
+// These lay out the wizard controls only — every value and handler still comes
+// from the same state and constants as before. No logic is defined here.
+
+// A labelled field with an optional inline hint, a right-aligned action (used
+// for the cm/ft and kg/lb unit toggles) and an error line.
+function WzField({
+  label,
+  opt,
+  error,
+  action,
+  children,
+}: {
+  label: string;
+  opt?: string;
+  error?: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          marginBottom: 8,
+        }}
+      >
+        <label
+          style={{
+            fontFamily: FONT_BODY,
+            fontWeight: 600,
+            fontSize: 14,
+            color: C.ink,
+          }}
+        >
+          {label}
+          {opt && (
+            <span style={{ fontWeight: 400, color: C.muted }}> {opt}</span>
+          )}
+        </label>
+        {action}
+      </div>
+      {children}
+      {error && (
+        <p
+          role="alert"
+          style={{
+            color: C.nonveg,
+            fontSize: 13,
+            margin: "6px 0 0",
+            fontFamily: FONT_BODY,
+          }}
+        >
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// A compact cm/ft or kg/lb switch that sits on the field's label row.
+function UnitToggle<T extends string>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        border: `1.5px solid ${C.line}`,
+        borderRadius: 999,
+        overflow: "hidden",
+        background: "#fff",
+      }}
+    >
+      {options.map((o) => {
+        const on = value === o.value;
+        return (
+          <motion.button
+            key={o.value}
+            type="button"
+            onClick={() => onChange(o.value)}
+            aria-pressed={on}
+            whileTap={{ scale: 0.98 }}
+            whileHover={on ? undefined : { y: -1 }}
+            animate={on ? { scale: 1.01 } : { scale: 1 }}
+            transition={{ duration: 0.16, ease: EASE_OUT }}
+            style={{
+              padding: "3px 12px",
+              border: 0,
+              cursor: "pointer",
+              background: on ? FOREST : "transparent",
+              color: on ? PAPER : C.muted,
+              fontFamily: FONT_BODY,
+              fontSize: 13,
+              fontWeight: 600,
+              lineHeight: 1.6,
+            }}
+          >
+            {o.label}
+          </motion.button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Segmented single-select. `stack` renders full-width, left-aligned rows with a
+// sub-label (used for "What's your day like?"); otherwise a grid of pills.
+function Seg<T extends string | number>({
+  value,
+  options,
+  onChange,
+  columns = 2,
+  stack = false,
+}: {
+  value: T | null | undefined;
+  options: Array<{ value: T; label: string; sub?: string }>;
+  onChange: (v: T) => void;
+  columns?: number;
+  stack?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: stack ? "1fr" : `repeat(${columns}, 1fr)`,
+        gap: 8,
+      }}
+    >
+      {options.map((o) => {
+        const on = value === o.value;
+        return (
+          <motion.button
+            key={String(o.value)}
+            type="button"
+            onClick={() => onChange(o.value)}
+            whileTap={{ scale: 0.985 }}
+            whileHover={{ y: on ? 0 : -1 }}
+            animate={on ? { scale: 1.01 } : { scale: 1 }}
+            transition={{ duration: 0.16, ease: EASE_OUT }}
+            style={{
+              textAlign: stack ? "left" : "center",
+              padding: stack ? "12px 14px" : "11px 8px",
+              border: `1.5px solid ${on ? FOREST : C.line}`,
+              borderRadius: 10,
+              background: on ? FOREST : "#fff",
+              color: on ? PAPER : C.ink,
+              fontFamily: FONT_BODY,
+              fontSize: 15,
+              fontWeight: on ? 600 : 500,
+              cursor: "pointer",
+              lineHeight: 1.25,
+              transition: "background 150ms, border-color 150ms",
+            }}
+          >
+            <span style={{ display: "block" }}>{o.label}</span>
+            {o.sub && (
+              <span
+                style={{
+                  display: "block",
+                  fontSize: 13,
+                  opacity: 0.78,
+                  marginTop: 2,
+                }}
+              >
+                {o.sub}
+              </span>
+            )}
+          </motion.button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Dropdown for age / height / weight. Stores a number; 0 renders the placeholder
+// option. Options run min..max inclusive in `step` increments (0.5 for the
+// decimal measurements). Whole values show without a trailing .0.
+function NumSelect({
+  value,
+  onChange,
+  min,
+  max,
+  step = 1,
+  placeholder,
+  suffix,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+  step?: number;
+  placeholder: string;
+  suffix?: string;
+}) {
+  const opts: number[] = [];
+  const count = Math.round((max - min) / step);
+  for (let k = 0; k <= count; k++) {
+    opts.push(Math.round((min + k * step) * 10) / 10);
+  }
+  const label = (n: number) => {
+    const s = Number.isInteger(n) ? `${n}` : n.toFixed(1);
+    return suffix ? `${s} ${suffix}` : s;
+  };
+  return (
+    <select
+      value={value ? String(value) : ""}
+      onChange={(e) =>
+        onChange(e.target.value === "" ? 0 : Number(e.target.value))
+      }
+      style={{
+        width: "100%",
+        padding: "12px",
+        paddingRight: 36,
+        fontFamily: FONT_BODY,
+        fontSize: 16,
+        border: `1.5px solid ${C.line}`,
+        borderRadius: 10,
+        background: "#fff",
+        color: value ? C.ink : C.muted,
+        outline: "none",
+        appearance: "none",
+        WebkitAppearance: "none",
+        backgroundImage:
+          "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%235E6A61' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "right 12px center",
+      }}
+    >
+      <option value="">{placeholder}</option>
+      {opts.map((n) => (
+        <option key={n} value={n}>
+          {label(n)}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function StepTag({ children }: { children: React.ReactNode }) {
+  return (
+    <p
+      style={{
+        fontFamily: FONT_BODY,
+        fontSize: 12,
+        fontWeight: 600,
+        letterSpacing: "0.08em",
+        textTransform: "uppercase",
+        color: FOREST_2,
+        margin: "0 0 6px",
+      }}
+    >
+      {children}
+    </p>
+  );
+}
+
+function StepTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h2
+      style={{
+        fontFamily: FONT_DISPLAY,
+        fontWeight: 600,
+        fontSize: "clamp(20px, 5vw, 24px)",
+        color: FOREST,
+        margin: "0 0 14px",
+        lineHeight: 1.2,
+      }}
+    >
+      {children}
+    </h2>
+  );
+}
+
+// ─── SINGLE-PAGE FORM LAYOUT HELPERS ─────────────────────
+// The quiz used to be one question per screen. It is now a single table-style
+// page, so these helpers only lay the EXISTING fields out — every option, value
+// and handler still comes from the same constants and state as before. No
+// calculation, validation or data shape is defined here.
+function SectionTitle({
+  step,
+  children,
+}: {
+  step: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="flex items-center"
+      style={{
+        gap: 8,
+        padding: "16px 16px 6px",
+        borderTop: `1px solid ${C.line}`,
+        background: "rgba(22,163,74,0.04)",
+      }}
+    >
+      <span
+        style={{
+          width: 20,
+          height: 20,
+          borderRadius: 999,
+          background: C.yolk,
+          color: "#fff",
+          fontFamily: FONT_BODY,
+          fontSize: 11,
+          fontWeight: 800,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+      >
+        {step}
+      </span>
+      <span
+        style={{
+          fontFamily: FONT_DISPLAY,
+          fontSize: 14,
+          fontWeight: 800,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          color: C.bone,
+        }}
+      >
+        {children}
+      </span>
+    </div>
+  );
+}
+
+// One table-style row: the field label sits to the left on desktop and stacks
+// above the control on small screens.
+function FieldRow({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="flex flex-col sm:flex-row sm:items-center"
+      style={{
+        gap: 10,
+        padding: "14px 16px",
+        borderTop: `1px solid ${C.line}`,
+      }}
+    >
+      <div className="sm:flex-shrink-0" style={{ width: "100%", maxWidth: 180 }}>
+        <div
+          style={{
+            fontFamily: FONT_BODY,
+            fontWeight: 700,
+            fontSize: 14,
+            color: C.bone,
+          }}
+        >
+          {title}
+        </div>
+        {hint && (
+          <div
+            style={{
+              fontFamily: FONT_BODY,
+              fontSize: 12,
+              color: C.muted,
+              marginTop: 2,
+              lineHeight: 1.4,
+            }}
+          >
+            {hint}
+          </div>
+        )}
+      </div>
+      <div className="flex-1" style={{ minWidth: 0, width: "100%" }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Compact single-select buttons — the table's cell control. The selected style
+// matches the old option cards (green tint + green border) so the brand look is
+// unchanged.
+function Choice<T extends string | number>({
+  options,
+  value,
+  onChange,
+  columns = "grid-cols-2 sm:grid-cols-4",
+}: {
+  options: Array<{
+    value: T;
+    label: string;
+    sub?: string;
+    mark?: React.ReactNode;
+  }>;
+  value: T | null | undefined;
+  onChange: (v: T) => void;
+  columns?: string;
+}) {
+  return (
+    <div className={`grid ${columns}`} style={{ gap: 8 }}>
+      {options.map((o) => {
+        const selected = value === o.value;
+        return (
+          <motion.button
+            key={String(o.value)}
+            type="button"
+            onClick={() => onChange(o.value)}
+            className="text-left"
+            whileTap={{ scale: 0.985 }}
+            whileHover={selected ? undefined : { y: -1 }}
+            animate={selected ? { scale: 1.01 } : { scale: 1 }}
+            transition={{ duration: 0.16, ease: EASE_OUT }}
+            style={{
+              background: selected ? "rgba(22,163,74,0.10)" : "#fff",
+              border: `1.5px solid ${selected ? C.yolk : C.line}`,
+              borderRadius: 12,
+              padding: "10px 12px",
+              cursor: "pointer",
+              fontFamily: FONT_BODY,
+              fontSize: 14,
+              fontWeight: 600,
+              color: selected ? C.yolk : C.bone,
+              transition: "border-color 160ms, background 160ms",
+            }}
+          >
+            <span className="flex items-center" style={{ gap: 8 }}>
+              {o.mark}
+              <span>{o.label}</span>
+            </span>
+            {o.sub && (
+              <span
+                style={{
+                  display: "block",
+                  fontSize: 11,
+                  color: selected ? C.yolk : C.muted,
+                  marginTop: 2,
+                  fontWeight: 500,
+                }}
+              >
+                {o.sub}
+              </span>
+            )}
+          </motion.button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Slider + live value, used for age / height / weight in the table rows. Same
+// range inputs and bounds as the original sliders.
+function RangeField({
+  value,
+  min,
+  max,
+  unit,
+  onChange,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  unit: string;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div className="flex items-center" style={{ gap: 12 }}>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="flex-1"
+        style={{ accentColor: C.yolk, height: 26, minWidth: 0 }}
+      />
+      <span
+        style={{
+          fontFamily: FONT_DISPLAY,
+          fontSize: 20,
+          color: C.yolk,
+          minWidth: 66,
+          textAlign: "right",
+          flexShrink: 0,
+        }}
+      >
+        {value}
+        <span style={{ fontSize: 13, color: C.muted, fontFamily: FONT_BODY }}>
+          {unit}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+// Plain text input styled to sit in a table cell.
+function TextField({
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+  inputMode,
+  maxLength,
+  name,
+  autoComplete,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  type?: string;
+  inputMode?: "text" | "numeric" | "decimal" | "email" | "tel";
+  maxLength?: number;
+  name?: string;
+  autoComplete?: string;
+}) {
+  return (
+    <input
+      type={type}
+      name={name}
+      autoComplete={autoComplete}
+      inputMode={inputMode}
+      maxLength={maxLength}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      className="w-full"
+      style={{
+        fontFamily: FONT_BODY,
+        fontSize: 16,
+        fontWeight: 600,
+        color: C.bone,
+        padding: "12px 14px",
+        border: `1.5px solid ${C.line}`,
+        borderRadius: 10,
+        background: "#fff",
+        outline: "none",
+      }}
+    />
   );
 }
 
@@ -528,6 +1147,7 @@ function Result({
   menu,
   saveStep,
   setLoc,
+  dayLabel,
 }: {
   a: OnboardingAnswers;
   loc: LocState;
@@ -535,6 +1155,7 @@ function Result({
   menu: MenuState;
   saveStep: (next: number, updatedAnswers?: OnboardingAnswers) => void;
   setLoc: (loc: LocState) => void;
+  dayLabel?: string;
 }) {
   const navigate = useNavigate();
   const [vary, setVary] = useState(0);
@@ -607,8 +1228,8 @@ function Result({
     protein: metrics.proteinG,
     carbs: metrics.carbsG,
     fat: metrics.fatG,
-    fiber: 25,
-  }), [metrics.goalCalories, metrics.proteinG, metrics.carbsG, metrics.fatG]);
+    fiber: metrics.fiberG,
+  }), [metrics.goalCalories, metrics.proteinG, metrics.carbsG, metrics.fatG, metrics.fiberG]);
   const selectedNutrition = useMemo(() => {
     const items = cov.delMeals.flatMap((m: any) => m.items);
     const calories = Math.round(items.reduce((s: number, it: any) => s + kOf(ing, it.id, it.g), 0));
@@ -839,8 +1460,25 @@ function Result({
     setIsOrdering(false);
   };
 
+  // One line under the sticker title: gender · age · height · weight · day.
+  // Prefer the exact day label the user tapped, falling back to the activity label.
+  const activityLine = dayLabel
+    ? dayLabel
+    : a.activity
+      ? ACTIVITY[a.activity].label
+      : "";
+  const detailsLine = [
+    a.gender || "",
+    a.age ? `${a.age} yrs` : "",
+    a.height ? `${a.height} cm` : "",
+    a.weight ? `${a.weight} kg` : "",
+    activityLine,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
-    <div key="s9" className="anim" style={{ paddingTop: 12 }}>
+    <div key="s9" style={{ paddingTop: 12 }}>
       {/* `menu_items` is the only food source. If it could not be read, say so
           instead of showing a plan built from nothing. */}
       {menu.status === "error" && (
@@ -862,40 +1500,18 @@ function Result({
         </div>
       )}
 
-      <Eyebrow>Your number</Eyebrow>
-      <div
-        style={{
-          fontFamily: FONT_DISPLAY,
-          fontSize: "clamp(96px, 30vw, 150px)",
-          lineHeight: 0.9,
-          color: C.yolk,
-        }}
-      >
-        {n}
-        <span style={{ fontSize: "0.32em", color: C.bone }}>g</span>
-      </div>
-      <div
+      <Eyebrow>Here's your number</Eyebrow>
+      <p
         style={{
           fontFamily: FONT_BODY,
           fontSize: 15,
-          color: C.bone,
-          fontWeight: 600,
-          margin: "10px 0 4px",
-        }}
-      >
-        of protein. Every single day, {a.name.split(" ")[0]}.
-      </div>
-      <div
-        style={{
-          fontFamily: FONT_BODY,
-          fontSize: 13,
           color: C.muted,
           lineHeight: 1.5,
-          marginBottom: 22,
+          margin: "0 0 16px",
         }}
       >
         {bmiLine()}
-      </div>
+      </p>
 
       {a.goal === "loss" && metrics.bmi < 18.5 && (
         <div
@@ -964,8 +1580,136 @@ function Result({
         </button>
       )}
 
-      {/* PLAN CARD */}
+      {/* RESULT — FuelBox sticker card (daily kcal + macros) */}
       <div
+        className="card-anim"
+        style={{
+          background: PAPER,
+          border: `2px solid ${FOREST}`,
+          borderRadius: 14,
+          overflow: "hidden",
+          marginBottom: 14,
+        }}
+      >
+        <div
+          style={{
+            background: FOREST,
+            color: PAPER,
+            padding: "16px 18px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+            gap: 12,
+          }}
+        >
+          <span
+            style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 17 }}
+          >
+            {a.name ? `${a.name}, your daily fuel` : "Your daily fuel"}
+          </span>
+          <span style={{ fontSize: 13, opacity: 0.85, fontFamily: FONT_BODY }}>
+            {a.goal ? GOALS[a.goal].label : ""}
+          </span>
+        </div>
+        {detailsLine && (
+          <p
+            style={{
+              fontFamily: FONT_BODY,
+              fontSize: 13,
+              color: C.ink,
+              padding: "10px 18px",
+              margin: 0,
+              borderBottom: `1px solid ${C.line}`,
+              background: "#fff",
+            }}
+          >
+            {detailsLine}
+          </p>
+        )}
+        <div
+          style={{
+            padding: 18,
+            borderBottom: `1px solid ${C.line}`,
+            display: "flex",
+            alignItems: "baseline",
+            gap: 10,
+          }}
+        >
+          <b
+            style={{
+              fontFamily: FONT_DISPLAY,
+              fontSize: 48,
+              lineHeight: 1,
+              color: FOREST,
+            }}
+          >
+            {fixedTarget.calories.toLocaleString("en-IN")}
+          </b>
+          <span style={{ color: C.muted, fontFamily: FONT_BODY }}>
+            kcal per day
+          </span>
+        </div>
+        <div
+          style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)" }}
+        >
+          {[
+            { k: "Protein", v: `${fixedTarget.protein} g`, on: true },
+            { k: "Carbs", v: `${fixedTarget.carbs} g`, on: false },
+            { k: "Fat", v: `${fixedTarget.fat} g`, on: false },
+            { k: "Fiber", v: `${fixedTarget.fiber} g`, on: false },
+          ].map((t, i, arr) => (
+            <div
+              key={t.k}
+              className={`card-anim stagger-${i + 1}`}
+              style={{
+                padding: "14px 6px",
+                textAlign: "center",
+                borderRight:
+                  i < arr.length - 1 ? `1px solid ${C.line}` : "none",
+                background: t.on ? TINT : "transparent",
+              }}
+            >
+              <b
+                style={{
+                  display: "block",
+                  fontFamily: FONT_DISPLAY,
+                  fontSize: 22,
+                  color: FOREST,
+                }}
+              >
+                {t.v}
+              </b>
+              <span
+                style={{ fontSize: 13, color: C.muted, fontFamily: FONT_BODY }}
+              >
+                {t.k}
+              </span>
+            </div>
+          ))}
+        </div>
+        <p
+          style={{
+            fontFamily: FONT_BODY,
+            fontSize: 13,
+            color: C.muted,
+            padding: "12px 18px",
+            borderTop: `1px solid ${C.line}`,
+            margin: 0,
+            lineHeight: 1.5,
+          }}
+        >
+          Your body burns about {Math.round(metrics.tdee).toLocaleString("en-IN")}{" "}
+          kcal a day at this activity level.{" "}
+          {a.goal === "loss"
+            ? "This target sets a gentle deficit for steady fat loss."
+            : a.goal === "maintenance"
+              ? "This target holds your current weight."
+              : "This target adds a surplus to support gain."}
+        </p>
+      </div>
+
+      {/* PRICE + DELIVERY CARD */}
+      {/* <div
         style={{
           background: C.card,
           border: `1.5px solid ${C.line}`,
@@ -1023,65 +1767,12 @@ function Result({
           </div>
         </div>
         <div style={{ height: 1, background: C.line, margin: "16px 0" }} />
-        <div style={{ background: C.card, border: `1px solid ${C.yolk}20`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.yolk, textTransform: "uppercase", letterSpacing: "0.14em", marginBottom: 10 }}>Your Selected Foods — {selectedNutrition.calories} kcal · {selectedNutrition.protein}g Protein</div>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-3">
-            <div style={{ background: "#F9FAFB", borderRadius: 10, padding: "8px 10px", textAlign: "center", border: `1px solid ${C.line}` }}>
-              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Calories</div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: C.bone }}>{selectedNutrition.calories}</div>
-              <div style={{ fontSize: 10, color: C.muted }}>of {fixedTarget.calories}</div>
-            </div>
-            <div style={{ background: "#F9FAFB", borderRadius: 10, padding: "8px 10px", textAlign: "center", border: `1px solid ${C.line}` }}>
-              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Protein</div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: C.bone }}>{selectedNutrition.protein}g</div>
-              <div style={{ fontSize: 10, color: C.muted }}>of {fixedTarget.protein}g</div>
-            </div>
-            <div style={{ background: "#F9FAFB", borderRadius: 10, padding: "8px 10px", textAlign: "center", border: `1px solid ${C.line}` }}>
-              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Carbs</div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: C.bone }}>{selectedNutrition.carbs}g</div>
-            </div>
-            <div style={{ background: "#F9FAFB", borderRadius: 10, padding: "8px 10px", textAlign: "center", border: `1px solid ${C.line}` }}>
-              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Fat</div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: C.bone }}>{selectedNutrition.fat}g</div>
-            </div>
-            <div style={{ background: "#F9FAFB", borderRadius: 10, padding: "8px 10px", textAlign: "center", border: `1px solid ${C.line}` }}>
-              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Fiber</div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: C.bone }}>{selectedNutrition.fiber}g</div>
-            </div>
-          </div>
-          {/* Progress bars */}
-          <div style={{ marginBottom: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, fontWeight: 700, color: C.bone, marginBottom: 4 }}>
-              <span>Calories</span><span>{selectedNutrition.calories} / {fixedTarget.calories} kcal</span>
-            </div>
-            <div style={{ height: 8, background: C.line, borderRadius: 6, overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${Math.min(100, Math.round((selectedNutrition.calories / fixedTarget.calories) * 100))}%`, background: selectedNutrition.calories > fixedTarget.calories ? C.nonveg : C.yolk, borderRadius: 6, transition: "width 300ms" }} />
-            </div>
-          </div>
-          <div style={{ marginBottom: 4 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, fontWeight: 700, color: C.bone, marginBottom: 4 }}>
-              <span>Protein</span><span>{selectedNutrition.protein} / {fixedTarget.protein}g</span>
-            </div>
-            <div style={{ height: 8, background: C.line, borderRadius: 6, overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${Math.min(100, Math.round((selectedNutrition.protein / fixedTarget.protein) * 100))}%`, background: selectedNutrition.protein > fixedTarget.protein ? C.nonveg : C.yolk, borderRadius: 6, transition: "width 300ms" }} />
-            </div>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12, padding: 10, background: "rgba(22,163,74,0.06)", borderRadius: 10, border: `1px dashed ${C.yolk}30` }}>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Selected Plan</div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: C.bone }}>{selectedNutrition.calories} kcal · {selectedNutrition.protein}g P</div>
-            </div>
-            <div style={{ textAlign: "center", borderLeft: `1px solid ${C.line}` }}>
-              <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>Remaining</div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: remaining.calories >= 0 && remaining.protein >= 0 ? C.yolk : C.nonveg }}>{Math.abs(remaining.calories)} kcal · {Math.abs(remaining.protein)}g {remaining.calories >= 0 ? "left" : "over"}</div>
-            </div>
-          </div>
-        </div>
 
         {planToUse.limitWarning && (
           <div
+            className="card-anim stagger-1"
             style={{
-              background: "rgba(232,185,49,0.08)",
+              background: "rgba(183,121,31,0.08)",
               border: `1.5px solid ${C.egg}`,
               borderRadius: 12,
               padding: "12px 14px",
@@ -1097,157 +1788,8 @@ function Result({
           </div>
         )}
 
-        {planToUse.meals.map((m: any) => {
-          const mine = cov.delNames.includes(m.name);
-          return (
-            <div
-              key={m.name}
-              style={{
-                marginBottom: 14,
-                opacity: mine ? 1 : 0.35,
-                background: "rgba(0,0,0,0.02)",
-                borderRadius: 12,
-                padding: "10px 12px",
-                pointerEvents: mine ? "auto" : "none",
-                userSelect: mine ? "auto" : "none",
-              }}
-            >
-              <div className="flex items-center justify-between" style={{ marginBottom: 4 }}>
-                <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: mine ? C.yolk : C.muted, textTransform: "uppercase", letterSpacing: "0.18em", fontWeight: 700 }}>
-                  {mine ? "🟨 " : ""}{m.name}{mine ? " — FuelBox" : " — your side"}
-                </span>
-                <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: mine ? C.yolk : C.muted }}>
-                  {kcalOfMeal(m)} / {perMealKcalOf(m.name)} kcal · {protOfMeal(m)} / {perMealProteinOf(m.name)}g P · {fatOfMeal(m)}g F
-                </span>
-              </div>
-              {mine && (() => {
-                const cur = kcalOfMeal(m);
-                const lim = perMealKcalOf(m.name);
-                const pct = lim > 0 ? Math.min(100, Math.round((cur / lim) * 100)) : 0;
-                const over = cur > lim;
-                const onTarget = cur === lim;
-                return (
-                  <div style={{ marginBottom: 8 }}>
-                    <div style={{ height: 6, background: C.line, borderRadius: 6, overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${pct}%`, background: over ? C.nonveg : onTarget ? C.veg : C.yolk, borderRadius: 6, transition: "width 300ms" }} />
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.muted, marginTop: 4, fontWeight: 600, gap: 8 }}>
-                      <span>{pct}%</span>
-                      <span style={{ color: over ? C.nonveg : onTarget ? C.veg : C.muted, fontWeight: 700 }}>{over ? `${m.name} over target by ${cur - lim} kcal` : onTarget ? `${m.name} on target ✓ (${lim} kcal)` : `${lim - cur} kcal left in ${m.name}`}</span>
-                    </div>
-                  </div>
-                );
-              })()}
-              {m.items.length === 0 ? (
-                <div style={{ fontSize: 12, color: C.muted, padding: "8px 0", fontStyle: "italic" }}>No foods selected for {m.name}. Add foods below.</div>
-              ) : (
-                m.items.map((it: any) => {
-                  const cal = Math.round(kOf(ing, it.id, it.g));
-                  const pro = Math.round(pOf(ing, it.id, it.g));
-                  const carbs = Math.round(cOf(ing, it.id, it.g));
-                  const fat = round1(fOf(ing, it.id, it.g));
-                  const fib = Math.round(fiOf(ing, it.id, it.g) * 10) / 10;
-                  return (
-                    <div key={it.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2" style={{ padding: "10px 0", borderBottom: `1px solid rgba(0,0,0,0.04)` }}>
-                      <span className="flex items-start" style={{ gap: 9, flex: 1, minWidth: 0 }}>
-                        <FoodMark type={ing[it.id].t} size={13} />
-                        <span style={{ fontFamily: FONT_BODY, fontSize: 14, color: C.bone, display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
-                          <span style={{ fontWeight: 700, wordBreak: "break-word" }}>{ing[it.id].n}</span>
-                          <span style={{ color: C.muted, fontSize: 11, display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4, lineHeight: 1.4, alignItems: "center" }}>
-                            <span>{fmtQty(ing, it)}</span>
-                            <span>•</span><span>{cal} kcal</span>
-                            <span>•</span><span>{pro}g P</span>
-                            <span>•</span><span>{carbs}g C</span>
-                            <span>•</span><span>{fat}g F</span>
-                            <span>•</span><span>{fib}g Fiber</span>
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, marginLeft: 4, padding: "2px 6px", borderRadius: 6, background: ing[it.id].t==='veg' ? '#DCFCE7' : ing[it.id].t==='egg' ? '#FEF3C7' : '#FEE2E2', color: ing[it.id].t==='veg' ? C.veg : ing[it.id].t==='egg' ? C.egg : C.nonveg, fontWeight: 700, textTransform: "capitalize", fontSize: 10 }}>{ing[it.id].t}</span>
-                          </span>
-                        </span>
-                      </span>
-                      {mine && (
-                        <button onClick={() => handleRemoveItem(m.name, it.id)} style={{ background: "#FEE2E2", color: C.nonveg, border: `1px solid #FCA5A5`, borderRadius: 8, padding: "8px 14px", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0, minHeight: 36, minWidth: 72 }} className="hover:bg-red-100 active:scale-95 transition">Remove</button>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-              {mine && (
-                <div style={{ marginTop: 10 }}>
-                  <select
-                    value=""
-                    onChange={(e) => {
-                      const newId = e.target.value;
-                      if (newId) {
-                        handleAddItem(m.name, newId);
-                        e.target.value = "";
-                      }
-                    }}
-                    style={{
-                      fontFamily: FONT_BODY,
-                      fontSize: 12,
-                      color: C.yolk,
-                      background: "rgba(22,163,74,0.06)",
-                      border: `1px dashed ${C.yolk}`,
-                      borderRadius: 8,
-                      padding: "8px 10px",
-                      cursor: "pointer",
-                      outline: "none",
-                      width: "100%",
-                      minHeight: 44,
-                    }}
-                  >
-                    <option value="" disabled>
-                      + Add food to {m.name} — {kcalOfMeal(m)}/{perMealKcalOf(m.name)} kcal
-                    </option>
-                    {/* Every entry in `ing` is a live menu_items row, and the
-                        same goal filter that built the plan narrows this list:
-                        foods the user's goal is not assigned to are not
-                        offered here either. */}
-                    {Object.entries(ing)
-                      .filter(([id]) => goalFoods.has(id))
-                      .filter(([id]) => !m.items.some((it: any) => it.id === id))
-                      .filter(([id, d]) => {
-                        if (a.food === "veg" && (d as any).t !== "veg") return false;
-                        if (a.food === "egg" && (d as any).t === "nonveg") return false;
-                        return true;
-                      })
-                      .map(([id, d]) => {
-                        const canAdd = canAddToMeal(m.name, id);
-                        // Preview the same portion the add handler will use —
-                        // the food's own window clamps the 70 g default, so the
-                        // label never quotes an illegal plate.
-                        const grams = clampPortion(
-                          DEFAULT_ADD_GRAMS,
-                          portionBoundsForGoal({ min_grams: d.min, max_grams: d.max, goal_portions: d.gp }, goalKey),
-                        );
-                        const kcal = Math.round(kOf(ing, id, grams));
-                        return (
-                          <option key={id} value={id} disabled={!canAdd} style={{ color: canAdd ? C.bone : C.muted }}>
-                            {(d as any).n} — {kcal} kcal {canAdd ? "" : "(would exceed)"}
-                          </option>
-                        );
-                      })}
-                  </select>
-                  <div style={{ fontSize: 10, color: C.muted, marginTop: 6, lineHeight: 1.4 }}>
-                    {(() => {
-                      const cur = kcalOfMeal(m);
-                      const lim = perMealKcalOf(m.name);
-                      const rem = lim - cur;
-                      return rem === 0
-                        ? `${m.name} on target ✓ (${lim} kcal, ${perMealProteinOf(m.name)}g P)`
-                        : rem < 0
-                          ? `${m.name} over target by ${Math.abs(rem)} kcal`
-                          : `${rem} kcal remaining in ${m.name}`;
-                    })()}
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-        <div style={{ height: 1, background: C.line, margin: "4px 0 12px" }} />
         <div
-          className="flex items-center justify-between"
+          className="flex items-center justify-between card-anim stagger-2"
           style={{ marginBottom: 4 }}
         >
           <span
@@ -1302,7 +1844,7 @@ function Result({
             ≈ ₹{((cov.price + (delivFee || 0)) * 5).toLocaleString("en-IN")}
           </span>
         </div>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between card-anim stagger-4">
           <span
             style={{
               fontFamily: FONT_BODY,
@@ -1338,9 +1880,9 @@ function Result({
             we've packed the maximum. Quality protein, no fake numbers.
           </div>
         )}
-      </div>
+      </div> */}
 
-      <button
+      {/* <button
         onClick={() => setVary((v) => v + 1)}
         className="w-full"
         style={{
@@ -1357,7 +1899,7 @@ function Result({
         }}
       >
         ↻ Mix the foods differently
-      </button>
+      </button> */}
 
       {orderError && (
         <div
@@ -1447,6 +1989,28 @@ function Result({
         Timelines are estimates from standard nutrition math, assuming strict
         diet + regular home workout. Not medical advice.
       </div>
+
+      {/* Back to step 1 so details can be edited (matches the reference). */}
+      <button
+        type="button"
+        onClick={() => saveStep(1)}
+        style={{
+          display: "block",
+          margin: "18px auto 0",
+          background: "none",
+          border: 0,
+          color: FOREST,
+          fontFamily: FONT_BODY,
+          fontSize: 14,
+          fontWeight: 600,
+          textDecoration: "underline",
+          cursor: "pointer",
+          padding: 8,
+        }}
+      >
+        ↩ Change my details
+      </button>
+
       {/* Toast for meal calorie limit */}
       {toast && (
         <div style={{ position: "fixed", bottom: 90, left: "50%", transform: "translateX(-50%)", background: C.bone, color: "#fff", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700, padding: "12px 16px", borderRadius: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 9999, maxWidth: "90vw", textAlign: "center", lineHeight: 1.4 }}>
@@ -1470,10 +2034,13 @@ export default function Onboarding() {
   const [step, setStep] = useState(0);
   const [a, setA] = useState<OnboardingAnswers>({
     goal: null,
-    age: 25,
+    // 0 renders as empty so the field shows its "e.g." placeholder; step 1
+    // requires a real value before continuing and calculateHealthMetrics already
+    // falls back to sane defaults for 0.
+    age: 0,
     gender: null,
-    height: 170,
-    weight: 70,
+    height: 0,
+    weight: 0,
     food: null,
     activity: null,
     freq: null,
@@ -1493,10 +2060,141 @@ export default function Onboarding() {
   const [sessionId, setSessionId] = useState("");
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [finalizationError, setFinalizationError] = useState("");
+  // "What's your day like?" is UI-only (not part of OnboardingAnswers);
+  // it sets `activity` / `activityMultiplier`.
+  const [day, setDay] = useState<string | null>(null);
+  const [work, setWork] = useState<string | null>(null);
+  // Height / weight are typed in the chosen unit; the canonical value stays in
+  // cm / kg on `a` so every calculation is metric.
+  const [heightUnit, setHeightUnit] = useState<"cm" | "ft">("cm");
+  const [weightUnit, setWeightUnit] = useState<"kg" | "lb">("kg");
+  // Raw text for the three measured fields so the exact typed value can be
+  // validated (blank / not a number / not whole / out of range). The numeric
+  // mirror still lives in `a` for the calculation and the plan.
+  const [ageStr, setAgeStr] = useState("");
+  const [heightStr, setHeightStr] = useState("");
+  const [weightStr, setWeightStr] = useState("");
+  // Per-field errors, keyed by field, all shown together on Calculate.
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  // Transient toasts. Every validation error also pops here as a toast while the
+  // inline message under each field stays put.
+  const [toasts, setToasts] = useState<{ id: number; text: string }[]>([]);
+  const pushToast = useCallback((text: string) => {
+    const id = Date.now() + Math.random();
+    setToasts((t) => [...t, { id, text }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4500);
+  }, []);
 
   const set = (k: keyof OnboardingAnswers, v: any) =>
     setA((p) => ({ ...p, [k]: v }));
-  const TOTAL = 8;
+
+  // Day sets the exact activity multiplier (workouts removed).
+  useEffect(() => {
+    const { multiplier, key } = activityFromDayWork(day, null);
+    setA((p) =>
+      p.activity === key && p.activityMultiplier === multiplier
+        ? p
+        : { ...p, activity: key, activityMultiplier: multiplier },
+    );
+  }, [day]);
+  const chooseDay = (k: string) => setDay(k);
+  const chooseWork = (_k: string) => setWork(null);
+  // Clear one field's error as soon as the user edits that field.
+  const clearError = (k: string) =>
+    setErrors((p) => (p[k] ? { ...p, [k]: "" } : p));
+
+  // Age accepts digits and a single decimal point only — letters never land in
+  // the field, so age can only ever be a number (or a blank/incomplete entry).
+  const onAgeChange = (v: string) => {
+    let s = v.replace(/[^0-9.]/g, "");
+    const dot = s.indexOf(".");
+    if (dot !== -1) s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, "");
+    setAgeStr(s);
+    set("age", NUM_RE.test(s.trim()) ? Number(s.trim()) : 0);
+    clearError("age");
+  };
+  const heightToCm = (s: string) => {
+    const t = s.trim();
+    if (!NUM_RE.test(t)) return 0;
+    const n = Number(t);
+    return heightUnit === "ft" ? round2(n * CM_PER_FT) : n;
+  };
+  const weightToKg = (s: string) => {
+    const t = s.trim();
+    if (!NUM_RE.test(t)) return 0;
+    const n = Number(t);
+    return weightUnit === "lb" ? round2(n * KG_PER_LB) : n;
+  };
+  const onHeightChange = (v: string) => {
+    setHeightStr(v);
+    set("height", heightToCm(v));
+    clearError("height");
+  };
+  const onWeightChange = (v: string) => {
+    setWeightStr(v);
+    set("weight", weightToKg(v));
+    clearError("weight");
+  };
+  const changeHeightUnit = (u: "cm" | "ft") => {
+    if (u === heightUnit) return;
+    const cm = heightToCm(heightStr);
+    setHeightStr(
+      cm ? String(u === "ft" ? round2(cm / CM_PER_FT) : round1(cm)) : "",
+    );
+    setHeightUnit(u);
+    clearError("height");
+  };
+  const changeWeightUnit = (u: "kg" | "lb") => {
+    if (u === weightUnit) return;
+    const kg = weightToKg(weightStr);
+    setWeightStr(
+      kg ? String(u === "lb" ? round1(kg / KG_PER_LB) : round1(kg)) : "",
+    );
+    setWeightUnit(u);
+    clearError("weight");
+  };
+
+  // Every rule, checked together so all errors can be shown at once. Nothing is
+  // calculated unless this returns an empty set.
+  const validateStep1 = () => {
+    const e: Record<string, string> = {};
+    if (!a.gender) e.gender = "Please select your gender.";
+    const ageS = ageStr.trim();
+    const ageN = NUM_RE.test(ageS) ? Number(ageS) : NaN;
+    if (isNaN(ageN) || ageN % 1 !== 0 || ageN > AGE_MAX) {
+      e.age = "Please enter your age in whole years (18–80).";
+    } else if (ageN < AGE_MIN) {
+      e.age = "FuelBox plans are for adults 18+.";
+    }
+    const cm = heightToCm(heightStr);
+    if (!cm || cm < HEIGHT_MIN || cm > HEIGHT_MAX) {
+      e.height = "Please enter a height between 120 and 220 cm.";
+    }
+    const kg = weightToKg(weightStr);
+    if (!kg || kg < WEIGHT_MIN || kg > WEIGHT_MAX) {
+      e.weight = "Please enter a weight between 30 and 200 kg.";
+    }
+    if (!day) e.day = "Please select what your day is like.";
+    if (!a.goal) e.goal = "Please select your goal.";
+    if (!a.food) e.food = "Please select your food preference.";
+    if (a.freq === null) e.freq = "Please select your meals per day.";
+    else if ((a.preferredSlots || []).length !== a.freq)
+      e.slots = `Pick ${a.freq} meal${a.freq > 1 ? "s" : ""} a day.`;
+    return e;
+  };
+
+  const handleStep1 = () => {
+    const e = validateStep1();
+    setErrors(e);
+    const msgs = Object.values(e).filter(Boolean);
+    if (msgs.length) {
+      // Mirror every error as a toast (replacing any toasts from a prior attempt).
+      setToasts([]);
+      msgs.forEach((m) => pushToast(m));
+      return;
+    }
+    saveStep(2);
+  };
 
   // Check for goal query param or path on mount
   useEffect(() => {
@@ -1651,6 +2349,32 @@ export default function Onboarding() {
     setTimeout(() => saveStep(next, updated), 260);
   };
 
+  // Meals-per-day and slot selection now live on the single page. The logic is
+  // identical to the old Step 6: picking N meals pre-selects the default slots
+  // (all three at 3 meals, none below) and slots toggle within the limit.
+  const chooseFreq = (num: number) => {
+    const defaultSlots = num === 3 ? [...MEAL_ORDER] : [];
+    setA((prev) => ({ ...prev, freq: num, preferredSlots: defaultSlots }));
+  };
+
+  const toggleSlot = (slot: string) => {
+    setA((prev) => {
+      let slots = [...(prev.preferredSlots || [])];
+      const freq = prev.freq || 1;
+      if (slots.includes(slot)) {
+        slots = slots.filter((s) => s !== slot);
+      } else if (freq === 1) {
+        slots = [slot];
+      } else if (slots.length < freq) {
+        slots.push(slot);
+      } else {
+        slots.shift();
+        slots.push(slot);
+      }
+      return { ...prev, preferredSlots: slots };
+    });
+  };
+
   const askLocation = () => {
     setLoc((p) => ({ ...p, status: "loading" }));
     if (!navigator.geolocation) {
@@ -1679,6 +2403,22 @@ export default function Onboarding() {
 
   const phoneOk = /^[6-9]\d{9}$/.test(a.phone);
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email.trim());
+
+  // The single-page form is submittable only when every required choice is made
+  // — the same gates the old per-step Next buttons enforced.
+  const formComplete =
+    phoneOk &&
+    emailOk &&
+    !!a.name.trim() &&
+    !!a.goal &&
+    !!a.gender &&
+    !!a.food &&
+    !!a.activity &&
+    a.freq !== null &&
+    (a.preferredSlots || []).length === a.freq;
+
+  // The live target shown (blurred) on step 2 — the same figure Result renders.
+  const previewMetrics = calculateHealthMetrics(a);
 
   // Handle "Get My Plan" — only generates and displays the plan (no DB write, no WhatsApp)
   const handleFinalize = async () => {
@@ -1748,7 +2488,7 @@ export default function Onboarding() {
     switch (step) {
       case 0:
         return (
-          <div key="s0" className="anim" style={{ paddingTop: 48 }}>
+          <div key="s0" style={{ paddingTop: 48 }}>
             <div
               style={{
                 fontFamily: FONT_BODY,
@@ -1814,616 +2554,560 @@ export default function Onboarding() {
 
       case 1:
         return (
-          <div key="s1" className="anim">
-            <Eyebrow>Step 1 / {TOTAL}</Eyebrow>
-            <Question>What's the goal?</Question>
-            {Object.entries(GOALS).map(([k, g]) => (
-              <OptionCard
-                key={k}
-                selected={a.goal === k}
-                onClick={() => pick("goal", k, 2)}
-                title={g.label}
-                sub={g.sub}
-              />
-            ))}
+          <div key="s1">
+            <StepTag>Step 1 of 2</StepTag>
+            <StepTitle>Tell us about you</StepTitle>
+            <div
+              style={{
+                background: PAPER,
+                border: `1px solid ${C.line}`,
+                borderRadius: 14,
+                padding: 20,
+              }}
+            >
+              <WzField label="Your name">
+                <TextField
+                  name="name"
+                  autoComplete="name"
+                  value={a.name}
+                  onChange={(v) => set("name", v)}
+                  placeholder="e.g. Rahul"
+                />
+              </WzField>
+
+              <WzField label="Gender" error={errors.gender}>
+                <Seg
+                  value={a.gender}
+                  onChange={(v) => {
+                    set("gender", v);
+                    clearError("gender");
+                  }}
+                  options={[
+                    { value: "Male", label: "Male" },
+                    { value: "Female", label: "Female" },
+                  ]}
+                />
+              </WzField>
+
+              <WzField label="Age" error={errors.age}>
+                <TextField
+                  value={ageStr}
+                  onChange={onAgeChange}
+                  placeholder="e.g. 26"
+                  inputMode="numeric"
+                  maxLength={3}
+                />
+              </WzField>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 12,
+                }}
+              >
+                <WzField
+                  label={`Height (${heightUnit})`}
+                  error={errors.height}
+                  action={
+                    <UnitToggle
+                      value={heightUnit}
+                      onChange={changeHeightUnit}
+                      options={[
+                        { value: "cm", label: "cm" },
+                        { value: "ft", label: "ft" },
+                      ]}
+                    />
+                  }
+                >
+                  <TextField
+                    value={heightStr}
+                    onChange={onHeightChange}
+                    placeholder={heightUnit === "cm" ? "e.g. 172.5" : "e.g. 5.66"}
+                    inputMode="decimal"
+                    maxLength={6}
+                  />
+                </WzField>
+                <WzField
+                  label={`Weight (${weightUnit})`}
+                  error={errors.weight}
+                  action={
+                    <UnitToggle
+                      value={weightUnit}
+                      onChange={changeWeightUnit}
+                      options={[
+                        { value: "kg", label: "kg" },
+                        { value: "lb", label: "lb" },
+                      ]}
+                    />
+                  }
+                >
+                  <TextField
+                    value={weightStr}
+                    onChange={onWeightChange}
+                    placeholder={weightUnit === "kg" ? "e.g. 70.5" : "e.g. 155"}
+                    inputMode="decimal"
+                    maxLength={6}
+                  />
+                </WzField>
+              </div>
+
+              <WzField label="What's your day like?" error={errors.day}>
+                <Seg
+                  stack
+                  value={day}
+                  onChange={(v) => {
+                    chooseDay(v);
+                    clearError("day");
+                  }}
+                  options={Object.entries(DAY_OPTS).map(([k, d]) => ({
+                    value: k,
+                    label: d.label,
+                    sub: d.sub,
+                  }))}
+                />
+              </WzField>
+
+              {/* Workouts per week removed per request */}
+
+              <WzField label="Your goal" error={errors.goal}>
+                <Seg
+                  value={a.goal}
+                  onChange={(v) => {
+                    set("goal", v);
+                    clearError("goal");
+                  }}
+                  options={[
+                    { value: "loss", label: "Weight loss" },
+                    { value: "maintenance", label: "Maintenance" },
+                    { value: "muscle", label: "Muscle gain" },
+                    { value: "gain", label: "Weight gain" },
+                  ]}
+                />
+              </WzField>
+
+              <WzField label="Food preference" error={errors.food}>
+                <Seg
+                  columns={3}
+                  value={a.food}
+                  onChange={(v) => {
+                    set("food", v);
+                    clearError("food");
+                  }}
+                  options={[
+                    { value: "veg", label: "Pure veg" },
+                    { value: "egg", label: "Veg + egg" },
+                    { value: "nonveg", label: "Non-veg" },
+                  ]}
+                />
+              </WzField>
+
+              <WzField label="Meals a day" error={errors.freq}>
+                <Seg
+                  columns={3}
+                  value={a.freq}
+                  onChange={(v) => {
+                    chooseFreq(v as number);
+                    clearError("freq");
+                    clearError("slots");
+                  }}
+                  options={[
+                    { value: 1, label: "1 meal" },
+                    { value: 2, label: "2 meals" },
+                    { value: 3, label: "3 meals" },
+                  ]}
+                />
+              </WzField>
+
+              {a.freq !== null && (
+                <WzField
+                  label="Which meals"
+                  opt={`(choose ${a.freq})`}
+                  error={errors.slots}
+                >
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(3, 1fr)",
+                      gap: 8,
+                    }}
+                  >
+                    {MEAL_ORDER.map((slot) => {
+                      const on = (a.preferredSlots || []).includes(slot);
+                      return (
+                        <button
+                          key={slot}
+                          type="button"
+                          onClick={() => toggleSlot(slot)}
+                          style={{
+                            padding: "11px 8px",
+                            border: `1.5px solid ${on ? FOREST : C.line}`,
+                            borderRadius: 10,
+                            background: on ? FOREST : "#fff",
+                            color: on ? PAPER : C.ink,
+                            fontFamily: FONT_BODY,
+                            fontSize: 15,
+                            fontWeight: on ? 600 : 500,
+                            cursor: "pointer",
+                            transition: "background 150ms, border-color 150ms",
+                          }}
+                        >
+                          {slot}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </WzField>
+              )}
+
+              <PrimaryBtn onClick={handleStep1}>Calculate my numbers</PrimaryBtn>
+            </div>
           </div>
         );
 
       case 2:
         return (
-          <div key="s2" className="anim">
-            <Eyebrow>Step 2 / {TOTAL}</Eyebrow>
-            <Question>About you.</Question>
-            <Slider
-              label="Age"
-              unit="yrs"
-              value={a.age}
-              min={16}
-              max={65}
-              onChange={(v) => set("age", v)}
-            />
+          <div key="s2">
+            <StepTag>Step 2 of 2</StepTag>
+            <StepTitle>Your numbers are ready</StepTitle>
+
             <div
               style={{
-                fontFamily: FONT_BODY,
-                fontSize: 13,
-                color: C.muted,
-                textTransform: "uppercase",
-                letterSpacing: "0.12em",
-                fontWeight: 600,
-                marginBottom: 10,
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                background: "#fff",
+                border: `1.5px solid ${C.line}`,
+                borderRadius: 12,
+                overflow: "hidden",
+                margin: "0 0 18px",
               }}
             >
-              Gender
-            </div>
-            <div className="flex" style={{ gap: 10, marginBottom: 28 }}>
-              {["Male", "Female"].map((g) => (
-                <button
-                  key={g}
-                  onClick={() => set("gender", g)}
+              <div style={{ padding: "14px 10px", textAlign: "center" }}>
+                <b
                   style={{
-                    flex: 1,
-                    padding: "13px",
-                    borderRadius: 12,
-                    cursor: "pointer",
-                    fontFamily: FONT_BODY,
-                    fontWeight: 700,
-                    fontSize: 15,
-                    background:
-                      a.gender === g ? "rgba(22,163,74,0.08)" : C.card,
-                    border: `1.5px solid ${a.gender === g ? C.yolk : C.line}`,
-                    color: a.gender === g ? C.yolk : C.bone,
-                    transition: "all 160ms",
+                    display: "block",
+                    fontFamily: FONT_DISPLAY,
+                    fontSize: 30,
+                    lineHeight: 1.1,
+                    color: FOREST,
+                    filter: "blur(7px)",
+                    userSelect: "none",
                   }}
                 >
-                  {g}
-                </button>
-              ))}
-            </div>
-            <PrimaryBtn disabled={!a.gender} onClick={() => saveStep(3)}>
-              Next →
-            </PrimaryBtn>
-          </div>
-        );
-
-      case 3:
-        return (
-          <div key="s3" className="anim">
-            <Eyebrow>Step 3 / {TOTAL}</Eyebrow>
-            <Question>Your build.</Question>
-            <Slider
-              label="Height"
-              unit="cm"
-              value={a.height}
-              min={140}
-              max={200}
-              onChange={(v) => set("height", v)}
-            />
-            <Slider
-              label="Weight"
-              unit="kg"
-              value={a.weight}
-              min={40}
-              max={130}
-              onChange={(v) => set("weight", v)}
-            />
-            <PrimaryBtn onClick={() => saveStep(4)}>Next →</PrimaryBtn>
-          </div>
-        );
-
-      case 4:
-        return (
-          <div key="s4" className="anim">
-            <Eyebrow>Step 4 / {TOTAL}</Eyebrow>
-            <Question>How do you eat?</Question>
-            <OptionCard
-              selected={a.food === "veg"}
-              onClick={() => pick("food", "veg", 5)}
-              title="Pure veg"
-              sub="Paneer, soya, channa, millets"
-              mark={<FoodMark type="veg" />}
-            />
-            <OptionCard
-              selected={a.food === "egg"}
-              onClick={() => pick("food", "egg", 5)}
-              title="Veg + egg"
-              sub="Everything veg, plus eggs"
-              mark={<FoodMark type="egg" />}
-            />
-            <OptionCard
-              selected={a.food === "nonveg"}
-              onClick={() => pick("food", "nonveg", 5)}
-              title="Non-veg"
-              sub="Chicken, eggs, the works"
-              mark={<FoodMark type="nonveg" />}
-            />
-          </div>
-        );
-
-      case 5:
-        return (
-          <div key="s5" className="anim">
-            <Eyebrow>Step 5 / {TOTAL}</Eyebrow>
-            <Question>Your day looks like…</Question>
-            {Object.entries(ACTIVITY).map(([k, v]) => (
-              <OptionCard
-                key={k}
-                selected={a.activity === k}
-                onClick={() => pick("activity", k, 6)}
-                title={v.label}
-                sub={v.sub}
-              />
-            ))}
-          </div>
-        );
-
-      case 6:
-        return (
-          <div key="s6" className="anim">
-            <Eyebrow>Step 6 / {TOTAL}</Eyebrow>
-            <Question>
-              How many times
-              <br />
-              should we fuel you?
-            </Question>
-            {Object.entries(FREQS).map(([k, f]) => (
-              <OptionCard
-                key={k}
-                selected={a.freq === Number(k)}
-                onClick={() => {
-                  const num = Number(k);
-                  const defaultSlots =
-                    num === 3 ? ["Morning", "Afternoon", "Night"] : [];
-                  setA((prev) => ({
-                    ...prev,
-                    freq: num,
-                    preferredSlots: defaultSlots,
-                  }));
+                  {previewMetrics.goalCalories}
+                </b>
+                <span style={{ fontSize: 13, color: C.muted }}>
+                  kcal per day
+                </span>
+              </div>
+              <div
+                style={{
+                  padding: "14px 10px",
+                  textAlign: "center",
+                  background: TINT,
+                  borderLeft: `1.5px solid ${C.line}`,
                 }}
-                title={f.label}
-                sub={f.sub}
-                right={
+              >
+                <b
+                  style={{
+                    display: "block",
+                    fontFamily: FONT_DISPLAY,
+                    fontSize: 30,
+                    lineHeight: 1.1,
+                    color: FOREST,
+                    filter: "blur(7px)",
+                    userSelect: "none",
+                  }}
+                >
+                  {previewMetrics.proteinG}
+                </b>
+                <span style={{ fontSize: 13, color: C.muted }}>protein g</span>
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: PAPER,
+                border: `1px solid ${C.line}`,
+                borderRadius: 14,
+                padding: 20,
+              }}
+            >
+              <WzField label="Your WhatsApp number to unlock them">
+                <div style={{ display: "flex", alignItems: "stretch" }}>
                   <span
                     style={{
+                      display: "flex",
+                      alignItems: "center",
+                      padding: "0 12px",
+                      border: `1.5px solid ${C.line}`,
+                      borderRight: 0,
+                      borderRadius: "10px 0 0 10px",
+                      background: CREAM,
+                      fontWeight: 600,
+                      color: C.ink,
                       fontFamily: FONT_BODY,
-                      fontSize: 11,
-                      fontWeight: 700,
-                      letterSpacing: "0.1em",
-                      color: Number(k) === 3 ? "#FFFFFF" : C.yolk,
-                      background:
-                        Number(k) === 3 ? C.yolk : "rgba(22,163,74,0.10)",
-                      padding: "5px 10px",
-                      borderRadius: 20,
-                      textTransform: "uppercase",
+                      fontSize: 15,
                     }}
                   >
-                    {f.tag}
+                    🇮🇳 +91
                   </span>
-                }
-              />
-            ))}
-            <div
-              style={{
-                fontFamily: FONT_BODY,
-                fontSize: 12,
-                color: C.muted,
-                lineHeight: 1.5,
-                marginTop: 4,
-              }}
-            >
-              More FuelBox meals = more of your day on target = faster result.
-              You'll see the difference on the next screen.
-            </div>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    autoComplete="tel-national"
+                    value={fmtPhone(a.phone)}
+                    onChange={(e) =>
+                      set(
+                        "phone",
+                        e.target.value.replace(/\D/g, "").slice(0, 10),
+                      )
+                    }
+                    placeholder="98765 43210"
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      padding: "12px",
+                      border: `1.5px solid ${C.line}`,
+                      borderLeft: 0,
+                      borderRadius: "0 10px 10px 0",
+                      background: "#fff",
+                      color: C.ink,
+                      fontFamily: FONT_BODY,
+                      fontSize: 18,
+                      letterSpacing: "0.06em",
+                      fontWeight: 500,
+                      outline: "none",
+                    }}
+                  />
+                </div>
+              </WzField>
 
-            {a.freq !== null && (
-              <div className="mt-6 border-t border-gray-700/50 pt-6 anim">
-                <div
-                  style={{
-                    fontFamily: FONT_BODY,
-                    fontSize: 13,
-                    color: C.muted,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.12em",
-                    fontWeight: 600,
-                    marginBottom: 12,
-                  }}
-                >
-                  Which meals should we deliver? (Choose {a.freq})
-                </div>
-                <div className="flex flex-col gap-2">
-                  {["Morning", "Afternoon", "Night"].map((slot) => {
-                    const selected = (a.preferredSlots || []).includes(slot);
-                    return (
-                      <button
-                        key={slot}
-                        onClick={() => {
-                          let slots = [...(a.preferredSlots || [])];
-                          if (slots.includes(slot)) {
-                            slots = slots.filter((s) => s !== slot);
-                          } else {
-                            if (a.freq === 1) {
-                              slots = [slot];
-                            } else if (slots.length < a.freq!) {
-                              slots.push(slot);
-                            } else {
-                              slots.shift();
-                              slots.push(slot);
-                            }
-                          }
-                          setA((prev) => ({ ...prev, preferredSlots: slots }));
-                        }}
-                        className="w-full text-left"
-                        style={{
-                          background: selected
-                            ? "rgba(22,163,74,0.08)"
-                            : C.card,
-                          border: `1.5px solid ${selected ? C.yolk : C.line}`,
-                          borderRadius: 14,
-                          padding: "16px 18px",
-                          cursor: "pointer",
-                          transition: "all 160ms",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 12,
-                        }}
-                      >
-                        <span style={{ flex: 1 }}>
-                          <span
-                            style={{
-                              display: "block",
-                              fontFamily: FONT_BODY,
-                              fontWeight: 700,
-                              fontSize: 16,
-                              color: C.bone,
-                            }}
-                          >
-                            {slot}
-                          </span>
-                        </span>
-                        <span
-                          style={{
-                            width: 18,
-                            height: 18,
-                            borderRadius: "50%",
-                            flexShrink: 0,
-                            border: `2px solid ${selected ? C.yolk : C.line}`,
-                            background: selected ? C.yolk : "transparent",
-                            transition: "all 160ms",
-                          }}
-                        />
-                      </button>
-                    );
-                  })}
-                </div>
+              <WzField label="Your email">
+                <TextField
+                  name="email"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  value={a.email}
+                  onChange={(v) => set("email", v)}
+                  placeholder="you@example.com"
+                />
+              </WzField>
 
-                <div className="mt-6">
-                  <PrimaryBtn
-                    onClick={() => saveStep(7)}
-                    disabled={(a.preferredSlots || []).length !== a.freq}
-                  >
-                    Continue →
-                  </PrimaryBtn>
-                </div>
-              </div>
-            )}
-          </div>
-        );
-
-      case 7:
-        return (
-          <div key="s7" className="anim">
-            <Eyebrow>Step 7 / {TOTAL}</Eyebrow>
-            <Question>
-              Where do we
-              <br />
-              deliver?
-            </Question>
-            {loc.status === "idle" || loc.status === "loading" ? (
-              <>
-                <PrimaryBtn
-                  onClick={askLocation}
-                  disabled={loc.status === "loading"}
-                >
-                  {loc.status === "loading"
-                    ? "Locating…"
-                    : "📍 Use my location"}
-                </PrimaryBtn>
-                <div
-                  style={{
-                    fontFamily: FONT_BODY,
-                    fontSize: 12,
-                    color: C.muted,
-                    lineHeight: 1.6,
-                    margin: "14px 0",
-                  }}
-                >
-                  Free delivery within {FREE_KM} km of The Fuel Box, Peelamedu.
-                  Up to{" "}
-                  {MAX_KM} km: ₹{FEE_PER_KM}/km after the free zone — calculated
-                  live.
-                </div>
-                <button
-                  onClick={() => {
-                    setLoc({
-                      status: "skip",
-                      km: null,
-                      fee: null,
-                      lat: null,
-                      lng: null,
-                    });
-                    saveStep(8);
-                  }}
-                  className="w-full"
-                  style={{
-                    background: "transparent",
-                    border: `1.5px solid ${C.line}`,
-                    borderRadius: 12,
-                    color: C.muted,
-                    fontFamily: FONT_BODY,
-                    fontSize: 14,
-                    fontWeight: 600,
-                    padding: "13px",
-                    cursor: "pointer",
-                  }}
-                >
-                  Skip — I'll confirm location on WhatsApp
-                </button>
-              </>
-            ) : (
-              <>
-                <div
-                  style={{
-                    background: C.card,
-                    borderRadius: 14,
-                    padding: "18px",
-                    border: `1.5px solid ${loc.status === "out" ? C.nonveg : loc.status === "free" ? C.veg : C.line}`,
-                    marginBottom: 14,
-                  }}
-                >
-                  {loc.status === "free" && (
-                    <>
-                      <div
-                        style={{
-                          fontFamily: FONT_BODY,
-                          fontWeight: 700,
-                          fontSize: 16,
-                          color: C.bone,
-                        }}
-                      >
-                        You're {loc.km} km from our kitchen ✓
-                      </div>
-                      <div
-                        style={{
-                          fontFamily: FONT_BODY,
-                          fontSize: 13,
-                          color: C.veg,
-                          marginTop: 4,
-                          fontWeight: 700,
-                        }}
-                      >
-                        FREE delivery for you
-                      </div>
-                    </>
-                  )}
-                  {loc.status === "paid" && (
-                    <>
-                      <div
-                        style={{
-                          fontFamily: FONT_BODY,
-                          fontWeight: 700,
-                          fontSize: 16,
-                          color: C.bone,
-                        }}
-                      >
-                        You're {loc.km} km away
-                      </div>
-                      <div
-                        style={{
-                          fontFamily: FONT_BODY,
-                          fontSize: 13,
-                          color: C.yolk,
-                          marginTop: 4,
-                          fontWeight: 700,
-                        }}
-                      >
-                        Delivery ₹{loc.fee}/day (₹{FEE_PER_KM}/km after{" "}
-                        {FREE_KM} km)
-                      </div>
-                    </>
-                  )}
-                  {loc.status === "out" && (
-                    <>
-                      <div
-                        style={{
-                          fontFamily: FONT_BODY,
-                          fontWeight: 700,
-                          fontSize: 16,
-                          color: C.bone,
-                        }}
-                      >
-                        You're {loc.km} km out — just past our {MAX_KM} km ring
-                        💔
-                      </div>
-                      <div
-                        style={{
-                          fontFamily: FONT_BODY,
-                          fontSize: 13,
-                          color: C.muted,
-                          marginTop: 4,
-                          lineHeight: 1.5,
-                        }}
-                      >
-                        We're Coimbatore-only for now. Drop your number — you're
-                        first in line when we expand.
-                      </div>
-                    </>
-                  )}
-                  {loc.status === "denied" && (
-                    <div
+              <WzField label="Delivery location">
+                {loc.status === "idle" || loc.status === "loading" ? (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={askLocation}
+                      disabled={loc.status === "loading"}
+                      className="w-full"
+                      style={{
+                        background: "#fff",
+                        border: `1.5px solid ${FOREST}`,
+                        borderRadius: 10,
+                        color: FOREST,
+                        fontFamily: FONT_BODY,
+                        fontSize: 15,
+                        fontWeight: 600,
+                        padding: "13px",
+                        cursor: loc.status === "loading" ? "wait" : "pointer",
+                        opacity: loc.status === "loading" ? 0.6 : 1,
+                      }}
+                    >
+                      {loc.status === "loading"
+                        ? "Getting your location…"
+                        : "📍 Use my current location"}
+                    </button>
+                    <p
                       style={{
                         fontFamily: FONT_BODY,
                         fontSize: 13,
                         color: C.muted,
-                        lineHeight: 1.5,
+                        margin: "6px 0 0",
                       }}
                     >
-                      Couldn't get your location. No problem — we'll confirm
-                      delivery on WhatsApp.
-                    </div>
-                  )}
-                </div>
-                <PrimaryBtn onClick={() => saveStep(8)}>Next →</PrimaryBtn>
-              </>
-            )}
-          </div>
-        );
+                      Helps us confirm we can deliver to you.
+                    </p>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      background:
+                        loc.status === "free" || loc.status === "paid"
+                          ? TINT
+                          : "#fff",
+                      borderRadius: 10,
+                      padding: "12px 14px",
+                      border: `1.5px solid ${
+                        loc.status === "out"
+                          ? C.nonveg
+                          : loc.status === "free"
+                            ? C.veg
+                            : C.line
+                      }`,
+                    }}
+                  >
+                    {loc.status === "free" && (
+                      <>
+                        <div
+                          style={{
+                            fontFamily: FONT_BODY,
+                            fontWeight: 700,
+                            fontSize: 14,
+                            color: C.ink,
+                          }}
+                        >
+                          You're {loc.km} km from our kitchen ✓
+                        </div>
+                        <div
+                          style={{
+                            fontFamily: FONT_BODY,
+                            fontSize: 13,
+                            color: C.veg,
+                            marginTop: 2,
+                            fontWeight: 700,
+                          }}
+                        >
+                          FREE delivery for you
+                        </div>
+                      </>
+                    )}
+                    {loc.status === "paid" && (
+                      <>
+                        <div
+                          style={{
+                            fontFamily: FONT_BODY,
+                            fontWeight: 700,
+                            fontSize: 14,
+                            color: C.ink,
+                          }}
+                        >
+                          You're {loc.km} km away
+                        </div>
+                        <div
+                          style={{
+                            fontFamily: FONT_BODY,
+                            fontSize: 13,
+                            color: FOREST_2,
+                            marginTop: 2,
+                            fontWeight: 700,
+                          }}
+                        >
+                          Delivery ₹{loc.fee}/day (₹{FEE_PER_KM}/km after{" "}
+                          {FREE_KM} km)
+                        </div>
+                      </>
+                    )}
+                    {loc.status === "out" && (
+                      <>
+                        <div
+                          style={{
+                            fontFamily: FONT_BODY,
+                            fontWeight: 700,
+                            fontSize: 14,
+                            color: C.ink,
+                          }}
+                        >
+                          You're {loc.km} km out — just past our {MAX_KM} km ring
+                          💔
+                        </div>
+                        <div
+                          style={{
+                            fontFamily: FONT_BODY,
+                            fontSize: 12,
+                            color: C.muted,
+                            marginTop: 2,
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          We're Coimbatore-only for now. Drop your details —
+                          you're first in line when we expand.
+                        </div>
+                      </>
+                    )}
+                    {(loc.status === "denied" || loc.status === "skip") && (
+                      <div
+                        style={{
+                          fontFamily: FONT_BODY,
+                          fontSize: 12,
+                          color: C.muted,
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        No problem — we'll confirm your delivery location on
+                        WhatsApp.
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={askLocation}
+                      style={{
+                        marginTop: 8,
+                        background: "none",
+                        border: 0,
+                        padding: 0,
+                        color: FOREST,
+                        fontFamily: FONT_BODY,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        textDecoration: "underline",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {loc.status === "denied" || loc.status === "skip"
+                        ? "Try my location again"
+                        : "Use my location instead"}
+                    </button>
+                  </div>
+                )}
+              </WzField>
 
-      case 8:
-        return (
-          <div key="s8" className="anim">
-            <Eyebrow>Step 8 / {TOTAL}</Eyebrow>
-            <Question>
-              Where do we send
-              <br />
-              your plan?
-            </Question>
-            {finalizationError && (
-              <div
+              {finalizationError && (
+                <p
+                  role="alert"
+                  style={{
+                    color: C.nonveg,
+                    background: "rgba(163,54,31,0.08)",
+                    border: `1px solid ${C.nonveg}`,
+                    borderRadius: 10,
+                    padding: 10,
+                    fontFamily: FONT_BODY,
+                    fontSize: 13,
+                    margin: "0 0 12px",
+                  }}
+                >
+                  {finalizationError}
+                </p>
+              )}
+
+              <PrimaryBtn
+                onClick={handleFinalize}
+                disabled={!formComplete || isFinalizing}
+              >
+                {isFinalizing ? "Loading…" : "Show my numbers"}
+              </PrimaryBtn>
+              <button
+                type="button"
+                onClick={() => setStep(1)}
                 style={{
-                  color: C.nonveg,
-                  fontSize: 13,
-                  background: "rgba(168,50,50,0.1)",
-                  border: `1px solid ${C.nonveg}`,
-                  borderRadius: 10,
-                  padding: 10,
-                  marginBottom: 12,
+                  display: "block",
+                  margin: "12px auto 0",
+                  background: "none",
+                  border: 0,
+                  color: FOREST,
                   fontFamily: FONT_BODY,
+                  fontSize: 14,
+                  fontWeight: 500,
+                  textDecoration: "underline",
+                  cursor: "pointer",
+                  padding: 6,
                 }}
               >
-                {finalizationError}
-              </div>
-            )}
-            <div
-              style={{
-                background: C.card,
-                border: `1.5px solid ${C.line}`,
-                borderRadius: 12,
-                padding: "4px 16px",
-                marginBottom: 10,
-              }}
-            >
-              <input
-                type="text"
-                name="name"
-                autoComplete="name"
-                value={a.name}
-                onChange={(e) => set("name", e.target.value)}
-                placeholder="Your name"
-                className="w-full"
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  outline: "none",
-                  fontFamily: FONT_BODY,
-                  fontSize: 17,
-                  fontWeight: 600,
-                  color: C.bone,
-                  padding: "14px 0",
-                }}
-              />
+                ← Back
+              </button>
             </div>
-            <div
-              style={{
-                background: C.card,
-                border: `1.5px solid ${C.line}`,
-                borderRadius: 12,
-                padding: "4px 16px",
-                marginBottom: 10,
-              }}
-            >
-              <input
-                type="email"
-                name="email"
-                autoComplete="email"
-                inputMode="email"
-                value={a.email}
-                onChange={(e) => set("email", e.target.value)}
-                placeholder="Your email"
-                className="w-full"
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  outline: "none",
-                  fontFamily: FONT_BODY,
-                  fontSize: 17,
-                  fontWeight: 600,
-                  color: C.bone,
-                  padding: "14px 0",
-                }}
-              />
-            </div>
-            <div
-              className="flex items-center"
-              style={{
-                background: C.card,
-                border: `1.5px solid ${C.line}`,
-                borderRadius: 12,
-                padding: "4px 16px",
-                marginBottom: 12,
-              }}
-            >
-              <span
-                style={{
-                  fontFamily: FONT_BODY,
-                  fontWeight: 700,
-                  color: C.muted,
-                  fontSize: 16,
-                  marginRight: 10,
-                }}
-              >
-                +91
-              </span>
-              <input
-                type="tel"
-                name="phone"
-                autoComplete="tel-national"
-                inputMode="numeric"
-                maxLength={10}
-                value={a.phone}
-                onChange={(e) =>
-                  set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))
-                }
-                placeholder="WhatsApp number"
-                className="w-full"
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  outline: "none",
-                  fontFamily: FONT_BODY,
-                  fontSize: 17,
-                  fontWeight: 600,
-                  color: C.bone,
-                  padding: "14px 0",
-                  letterSpacing: "0.06em",
-                }}
-              />
-            </div>
-            <div
-              style={{
-                fontFamily: FONT_BODY,
-                fontSize: 12,
-                color: C.muted,
-                marginBottom: 20,
-                lineHeight: 1.5,
-              }}
-            >
-              Your plan + price lands on WhatsApp from Ajith. No spam, no calls.
-            </div>
-            <PrimaryBtn
-              disabled={!phoneOk || !emailOk || !a.name.trim() || isFinalizing}
-              onClick={handleFinalize}
-            >
-              {isFinalizing ? "Generating Plan..." : "Get my plan →"}
-            </PrimaryBtn>
           </div>
         );
 
@@ -2436,6 +3120,7 @@ export default function Onboarding() {
             menu={menu}
             saveStep={saveStep}
             setLoc={setLoc}
+            dayLabel={day ? DAY_OPTS[day]?.label : ""}
           />
         );
       default:
@@ -2443,22 +3128,48 @@ export default function Onboarding() {
     }
   };
 
+  const prevStepRef = useRef(step);
+  const dir = step >= prevStepRef.current ? 1 : -1;
+  useEffect(() => {
+    prevStepRef.current = step;
+  }, [step]);
+  const reduce = useReducedMotion();
+
   return (
     <div
       style={{
         minHeight: "100vh",
-        background: "linear-gradient(135deg, #e2f0e2 0%, #fde8d8 100%)",
+        background: CREAM,
+        position: "relative",
       }}
     >
       <style
         dangerouslySetInnerHTML={{
           __html: `
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@700;800;900&family=Inter:wght@400;500;600;700&display=swap');
-        .anim { animation: fadeUp 320ms cubic-bezier(0.2, 0.7, 0.3, 1) both; }
-        @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-        input[type="range"]::-webkit-slider-thumb { cursor: pointer; }
+        @import url('https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&family=Work+Sans:wght@400;500;600;700&display=swap');
+        .anim { animation: fadeUp 360ms cubic-bezier(0.16, 0.8, 0.2, 1) both; }
+        .anim-delayed { animation: fadeUp 360ms cubic-bezier(0.16, 0.8, 0.2, 1) both; animation-delay: 80ms; }
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+        .toast { animation: toastIn 220ms cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+        @keyframes toastIn { from { opacity: 0; transform: translateY(-12px) scale(0.98); } to { opacity: 1; transform: none; } }
+        .seg input+label { transition: all 160ms cubic-bezier(0.16, 0.8, 0.2, 1); will-change: transform, background-color, border-color; }
+        .seg input:checked+label { transform: scale(1.02); box-shadow: 0 4px 12px -4px rgba(31,61,43,0.25); }
+        .seg input:not(:checked)+label:hover { transform: translateY(-1px); border-color: ${FOREST_2}; }
+        input, select, textarea { transition: border-color 180ms ease, box-shadow 180ms ease, transform 120ms ease; }
+        input:focus-visible, select:focus-visible { box-shadow: 0 0 0 3px rgba(30,122,70,0.15); transform: translateY(-1px); }
+        .card-anim { animation: slideUp 360ms cubic-bezier(0.16, 0.8, 0.2, 1) both; }
+        .stagger-1 { animation-delay: 40ms; }
+        .stagger-2 { animation-delay: 80ms; }
+        .stagger-3 { animation-delay: 120ms; }
+        .stagger-4 { animation-delay: 160ms; }
+        .stagger-5 { animation-delay: 200ms; }
+        button, .btn, .cta a { transition: all 160ms cubic-bezier(0.16, 0.8, 0.2, 1); will-change: transform, background-color, box-shadow; }
+        button:hover:not(:disabled), .btn:hover:not(:disabled), .cta a:hover { transform: translateY(-1px); box-shadow: 0 6px 20px -10px rgba(31,61,43,0.45); }
+        button:active:not(:disabled), .btn:active:not(:disabled), .cta a:active { transform: scale(0.995); }
+        input[type="range"]::-webkit-slider-thumb { cursor: pointer; transition: transform 140ms ease, box-shadow 140ms ease; }
+        input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.08); box-shadow: 0 2px 8px rgba(31,61,43,0.25); }
         button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid ${C.yolk}; outline-offset: 3px; border-radius: 4px; }
-        @media (prefers-reduced-motion: reduce) { .anim { animation: none; } * { transition: none !important; } }
+        @media (prefers-reduced-motion: reduce) { .anim { animation: none; } .toast { animation: none; } * { transition: none !important; } }
         /* Keep the last step clear of the fixed bottom nav on mobile/tablet */
         @media (max-width: 1023px) {
           .fuelbox-onboarding-main { padding-bottom: 128px !important; }
@@ -2467,43 +3178,78 @@ export default function Onboarding() {
         }}
       />
 
+      {/* Toast layer — every validation error also pops here, transiently. The
+          inline message under each field stays as well. */}
+      <div
+        style={{
+          position: "fixed",
+          top: "calc(env(safe-area-inset-top, 0px) + 14px)",
+          left: 0,
+          right: 0,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 8,
+          zIndex: 2000,
+          pointerEvents: "none",
+          padding: "0 14px",
+        }}
+      >
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            role="status"
+            aria-live="polite"
+            className="toast"
+            style={{
+              pointerEvents: "auto",
+              width: "100%",
+              maxWidth: 440,
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 10,
+              background: C.nonveg,
+              color: PAPER,
+              border: "1px solid rgba(255,255,255,0.18)",
+              borderRadius: 12,
+              padding: "11px 14px",
+              fontFamily: FONT_BODY,
+              fontSize: 14,
+              fontWeight: 500,
+              lineHeight: 1.35,
+              boxShadow: "0 10px 30px rgba(26,35,29,0.28)",
+            }}
+          >
+            <span style={{ fontSize: 15, lineHeight: "20px" }}>⚠️</span>
+            <span style={{ flex: 1 }}>{t.text}</span>
+          </div>
+        ))}
+      </div>
+
+      <FitnessScene
+        style={{ position: "fixed", zIndex: 0 }}
+        opacity={0.4}
+        safeWidth={step === 1 || step === 2 ? 560 : 440}
+        mobileCast={step === 0}
+      />
       <div
         className="mx-auto fuelbox-onboarding-main"
-        style={{ maxWidth: 440, padding: "0 22px 48px" }}
+        style={{ maxWidth: step === 1 || step === 2 ? 560 : 440, padding: "0 22px 48px", position: "relative", zIndex: 1 }}
       >
         <div
           className="flex items-center justify-center sm:justify-between gap-3"
           style={{ padding: "20px 0 14px" }}
         >
           <div className="flex flex-1 min-w-0 justify-center sm:justify-start items-center" style={{ display: "flex", alignItems: "center", minWidth: 0, flex: "1 1 auto" }}>
-            <img
-              src="/fuelbox_banner_transparent_2x.png"
-              alt="FuelBox"
-              className="h-[84px] w-auto max-w-[280px] sm:h-[92px] sm:max-w-[310px] md:h-[100px] md:max-w-[340px] object-contain block shrink-0 max-w-full mx-auto sm:mx-0"
-              style={{ maxWidth: "100%", objectFit: "contain", aspectRatio: "3200 / 966", display: "block" }}
-              onError={(e) => {
-                e.currentTarget.style.display = "none";
-                const textEl = e.currentTarget.nextSibling as HTMLDivElement;
-                if (textEl) textEl.style.display = "block";
-              }}
-            />
-            <div
-              style={{
-                fontFamily: FONT_DISPLAY,
-                fontSize: 20,
-                letterSpacing: "0.02em",
-                fontWeight: 800,
-                display: "none",
-              }}
-            >
-              <span style={{ color: "#16a34a" }}>Fuel</span>
-              <span style={{ color: "#111827" }}>Box</span>
-            </div>
+            <FuelBoxLogo />
           </div>
-          {step >= 1 && step <= TOTAL + 1 && (
-            <button
-              onClick={() => saveStep(step - 1)}
+          {step === 1 && (
+            <motion.button
+              onClick={() => saveStep(0)}
               className="shrink-0"
+              whileTap={{ scale: 0.985 }}
+              whileHover={{ y: -1 }}
+              transition={{ duration: 0.16, ease: EASE_OUT }}
               style={{
                 background: "transparent",
                 border: `1px solid ${C.line}`,
@@ -2518,30 +3264,21 @@ export default function Onboarding() {
               }}
             >
               ← Back
-            </button>
+            </motion.button>
           )}
         </div>
-        {step >= 1 && step <= TOTAL + 1 && (
-          <div
-            style={{
-              height: 3,
-              background: C.line,
-              borderRadius: 2,
-              marginBottom: 30,
-            }}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={step}
+            variants={dir >= 1 ? slideInRight : slideInLeft}
+            initial="hidden"
+            animate="show"
+            exit="exit"
+            transition={{ duration: 0.32, ease: EASE_OUT }}
           >
-            <div
-              style={{
-                height: "100%",
-                width: `${Math.min(100, (step / TOTAL) * 100)}%`,
-                background: C.yolk,
-                borderRadius: 2,
-                transition: "width 300ms ease",
-              }}
-            />
-          </div>
-        )}
-        {screen()}
+            {screen()}
+          </motion.div>
+        </AnimatePresence>
       </div>
 
       {/* Bottom navigation — mobile & tablet only (hidden on desktop) */}

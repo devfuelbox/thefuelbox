@@ -2,6 +2,7 @@
 
 import Footer from '@/components/layout/Footer';
 // import BottomNav from '@/components/layout/BottomNav';
+import PageTransition from '@/components/layout/PageTransition';
 import { usePathname } from 'next/navigation';
 import dynamic from 'next/dynamic';
 
@@ -22,7 +23,9 @@ export default function LayoutContent({ children }: { children: React.ReactNode 
 
   return (
     <>
-      <main className={`flex-grow ${!isAdmin ? 'pb-16 md:pb-0' : ''}`}>{children}</main>
+      <main className={`flex-grow ${!isAdmin ? 'pb-16 md:pb-0' : ''}`}>
+        <PageTransition>{children}</PageTransition>
+      </main>
       {!isAdmin && <Footer />}
       {/* {!isAdmin && <BottomNav />} */}
       {!isAdmin && <GlobalAdNotification />}
