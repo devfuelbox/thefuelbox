@@ -50,6 +50,11 @@ export function defineModels(sequelize: Sequelize) {
     name: { type: DataTypes.STRING, allowNull: false },
     description: { type: DataTypes.TEXT, defaultValue: '' },
     price: { type: DataTypes.DECIMAL(8, 2), defaultValue: 0 },
+    // Whether `price` is priced per kilogram or per piece. Stored values are a
+    // plain unit ('kg' | 'piece'); the admin UI always renders weights in grams.
+    // The column already exists (default 'piece'); listing it here makes it part
+    // of the model so reads/writes include it instead of silently dropping it.
+    price_unit: { type: DataTypes.STRING, defaultValue: 'piece' },
     calories: { type: DataTypes.DECIMAL(7, 1), defaultValue: 0 },
     protein_g: { type: DataTypes.DECIMAL(6, 1), defaultValue: 0 },
     carbs_g: { type: DataTypes.DECIMAL(6, 1), defaultValue: 0 },
@@ -237,7 +242,79 @@ export function defineModels(sequelize: Sequelize) {
     is_active: { type: DataTypes.BOOLEAN, defaultValue: true },
   }, { underscored: true });
 
-  return { MenuItem, User, Profile, Order, Customer, Payment, CustomerEnquiry, MealPlanSubscription, MealDelivery, ChefDeliveryMapping };
+  // Single source of truth for the TFBC client-management flow. A client is
+  // identified by their mobile number; `client_no` only drives the TFBCnnn
+  // display label. The row keeps the whole plan snapshot (goal, meals, schedule,
+  // dates, payment) so the Clients page and its actions never have to join the
+  // older customer_enquiry/subscription tables to render a client.
+  const Client = sequelize.define('clients', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    // Sequential display number — TFBC001, TFBC002, … Assigned on create and
+    // never reused, so a client's label stays stable across edits/renewals.
+    client_no: { type: DataTypes.INTEGER, allowNull: true, unique: true },
+    name: { type: DataTypes.STRING, allowNull: false },
+    phone: { type: DataTypes.STRING, allowNull: false, unique: true },
+    address: { type: DataTypes.TEXT, allowNull: true },
+    goal: { type: DataTypes.STRING, allowNull: true },
+    plan_type: { type: DataTypes.STRING, defaultValue: 'trial' },
+    duration_days: { type: DataTypes.INTEGER, defaultValue: 1 },
+    boxes_per_day: { type: DataTypes.INTEGER, defaultValue: 1 },
+    meals: { type: DataTypes.JSON, defaultValue: [] },
+    schedule: { type: DataTypes.STRING, defaultValue: 'mon_fri' },
+    start_date: { type: DataTypes.DATEONLY, allowNull: true },
+    end_date: { type: DataTypes.DATEONLY, allowNull: true },
+    skip_dates: { type: DataTypes.JSON, defaultValue: [] },
+    total_boxes: { type: DataTypes.INTEGER, defaultValue: 0 },
+    total_amount: { type: DataTypes.DECIMAL(10, 2), defaultValue: 0 },
+    paid_amount: { type: DataTypes.DECIMAL(10, 2), defaultValue: 0 },
+    balance_due_date: { type: DataTypes.DATEONLY, allowNull: true },
+    payment_history: { type: DataTypes.JSON, defaultValue: [] },
+    status: { type: DataTypes.STRING, defaultValue: 'active' },
+    notes: { type: DataTypes.TEXT, allowNull: true },
+    assigned_sales_id: { type: DataTypes.UUID, allowNull: true },
+  }, { underscored: true });
+
+  // One row per plan a client has held. A client's *current* plan is mirrored on
+  // the `clients` row (so the list page and its actions stay simple), while this
+  // table is the source of truth for the View Client page: it keeps every past
+  // plan — including the trial that was later converted, and each renewal — with
+  // its own dates, meals, amounts, skip list and payment ledger. Plans are
+  // appended (never rewritten), which is what makes per-plan history possible.
+  const ClientPlan = sequelize.define('client_plans', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    client_id: { type: DataTypes.UUID, allowNull: false },
+    plan_type: { type: DataTypes.STRING, defaultValue: 'trial' },
+    status: { type: DataTypes.STRING, defaultValue: 'active' },
+    goal: { type: DataTypes.STRING, allowNull: true },
+    duration_days: { type: DataTypes.INTEGER, defaultValue: 1 },
+    boxes_per_day: { type: DataTypes.INTEGER, defaultValue: 1 },
+    meals: { type: DataTypes.JSON, defaultValue: [] },
+    schedule: { type: DataTypes.STRING, defaultValue: 'mon_fri' },
+    start_date: { type: DataTypes.DATEONLY, allowNull: true },
+    end_date: { type: DataTypes.DATEONLY, allowNull: true },
+    skip_dates: { type: DataTypes.JSON, defaultValue: [] },
+    total_boxes: { type: DataTypes.INTEGER, defaultValue: 0 },
+    total_amount: { type: DataTypes.DECIMAL(10, 2), defaultValue: 0 },
+    paid_amount: { type: DataTypes.DECIMAL(10, 2), defaultValue: 0 },
+    balance_due_date: { type: DataTypes.DATEONLY, allowNull: true },
+    // [{ id, amount, method, reference, date, note }] — every entry belongs to
+    // this plan, so the ledger shown under each plan card is always correct.
+    payment_history: { type: DataTypes.JSON, defaultValue: [] },
+    notes: { type: DataTypes.TEXT, allowNull: true },
+  }, { underscored: true });
+
+  // Append-only audit log for the View Client page's "Update history" section.
+  // `type` is a stable machine key (client_created, plan_created, renewed, …),
+  // `message` is the human summary rendered in the list.
+  const ClientEvent = sequelize.define('client_events', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    client_id: { type: DataTypes.UUID, allowNull: false },
+    plan_id: { type: DataTypes.UUID, allowNull: true },
+    type: { type: DataTypes.STRING, allowNull: false },
+    message: { type: DataTypes.TEXT, defaultValue: '' },
+  }, { underscored: true });
+
+  return { MenuItem, User, Profile, Order, Customer, Payment, CustomerEnquiry, MealPlanSubscription, MealDelivery, ChefDeliveryMapping, Client, ClientPlan, ClientEvent };
 }
 
 // Safe, non-destructive schema sync: creates missing tables and only ADDs missing

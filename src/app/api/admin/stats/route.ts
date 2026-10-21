@@ -43,8 +43,8 @@ export async function GET(req: Request) {
     const totalRevenue = activeOrders.reduce((sum: number, o: any) => sum + Number(o.cost || 0), 0);
     const aov = activeOrders.length > 0 ? totalRevenue / activeOrders.length : 0;
 
-    // Collected Revenue = actual payments collected in the Payment Management
-    // module (sum of paid_amount across all payments).
+    // Collected Revenue = actual payments received (sum of paid_amount across
+    // all payment records).
     const payments = await (Payment as any).findAll({
       attributes: ['paid_amount'],
       raw: true,

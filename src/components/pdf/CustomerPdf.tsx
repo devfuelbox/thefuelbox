@@ -432,7 +432,7 @@ export function CustomerPdf({ customer, enquiry, subscription, deliveries, gener
         {/* Customer Name Hero */}
         <Text style={styles.customerNameHero}>{customerName}</Text>
         <Text style={styles.customerPhoneHero}>
-          {safeStr(c.phone || customer?.phone, '')} {c.email ? `• ${c.email}` : ''} {c.address ? `• ${c.address}` : ''}
+          {safeStr(c.phone || customer?.phone, '')} {c.address ? `• ${c.address}` : ''}
         </Text>
 
         {/* 1. Customer Details */}

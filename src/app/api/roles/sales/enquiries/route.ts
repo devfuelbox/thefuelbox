@@ -57,6 +57,11 @@ export async function POST(req: Request) {
         note: 'Initial payment',
       }] : [],
       sales_notes: body.sales_notes || '',
+      // Optional scheduling fields sent by the Sales "Create Client" form.
+      // Additive only — existing callers never send them, so nothing changes
+      // for enquiries created by the quick actions or the edit modal.
+      delivery_time_slot: body.delivery_time_slot || null,
+      special_instructions: body.special_instructions || null,
       sales_status: body.sales_status || 'follow_up',
       order_status: body.sales_status === 'non_follow_up' ? 'non_follow_up' : body.sales_status === 'not_interested' ? 'not_interested' : 'details_updated',
       assigned_sales_id: auth.user!.sub,

@@ -8,7 +8,6 @@ import {
   Trash2,
   X,
   Check,
-  ChefHat,
   Eye,
   EyeOff,
   Save,
@@ -34,7 +33,6 @@ interface MenuItem {
   fiber_g?: number;
   diet: DietType;
   category: string;
-  cookable: boolean;
   is_available: boolean;
   min_grams?: number | null;
   max_grams?: number | null;
@@ -74,6 +72,15 @@ const normalizeImageUrlForStorage = (url?: string | null): string | null => {
 // whole grams.
 const parseGrams = (value: string): number | null =>
   value.trim() === '' ? null : Math.max(0, Math.round(Number(value) || 0));
+
+/**
+ * Human-readable weight for the menu UI. Weights are always shown in grams,
+ * so 250 → "250 g" and 1000 → "1,000 g".
+ */
+const formatGrams = (grams: number): string => {
+  const g = Math.round(Number(grams) || 0);
+  return `${g.toLocaleString('en-IN')} g`;
+};
 
 const getDisplayImageUrl = (url?: string | null) => {
   if (!url) return null;
@@ -278,7 +285,6 @@ export default function AdminMenuPage() {
     fiber_g: 3,
     diet: 'veg' as DietType,
     category: 'main',
-    cookable: false,
     is_available: true,
     // Serving size limits in grams; null = no limit
     min_grams: null as number | null,
@@ -438,7 +444,6 @@ export default function AdminMenuPage() {
       ...item,
       category: item.category || 'main',
       price_unit: item.price_unit || 'piece',
-      cookable: !!item.cookable,
       calories: item.calories ?? 0,
       protein_g: item.protein_g ?? 0,
       carbs_g: item.carbs_g ?? 0,
@@ -499,7 +504,6 @@ export default function AdminMenuPage() {
           editingItem.price_unit || 'piece',
         is_available:
           editingItem.is_available,
-        cookable: !!editingItem.cookable,
         calories: Number(editingItem.calories) || 0,
         protein_g: Number(editingItem.protein_g) || 0,
         carbs_g: Number(editingItem.carbs_g) || 0,
@@ -552,8 +556,6 @@ export default function AdminMenuPage() {
                   'piece',
                 is_available:
                   editingItem.is_available,
-                cookable:
-                  !!editingItem.cookable,
                 calories: Number(editingItem.calories) || 0,
                 protein_g: Number(editingItem.protein_g) || 0,
                 carbs_g: Number(editingItem.carbs_g) || 0,
@@ -837,7 +839,6 @@ export default function AdminMenuPage() {
         fiber_g: 3,
         diet: 'veg',
         category: 'main',
-        cookable: false,
         is_available: true,
         min_grams: null,
         max_grams: null,
@@ -917,7 +918,6 @@ export default function AdminMenuPage() {
                 <th className="py-4 px-6">Carbs (g)</th>
                 <th className="py-4 px-6">Protein (g)</th>
                 <th className="py-4 px-6">Price</th>
-                <th className="py-4 px-6">Cookable</th>
                 <th className="py-4 px-6">Status</th>
                 <th className="py-4 px-6 text-right">Actions</th>
               </tr>
@@ -925,13 +925,13 @@ export default function AdminMenuPage() {
             <tbody className="divide-y divide-gray-100 text-sm">
               {loading ? (
                 <tr>
-                  <td colSpan={12} className="py-12 text-center text-gray-400 font-medium">
+                  <td colSpan={11} className="py-12 text-center text-gray-400 font-medium">
                     Loading food items...
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="py-12 text-center text-gray-400 font-medium">
+                  <td colSpan={11} className="py-12 text-center text-gray-400 font-medium">
                     No food items found matching filter.
                   </td>
                 </tr>
@@ -988,21 +988,23 @@ export default function AdminMenuPage() {
                         </div>
                       ) : (
                         <div className="flex items-center gap-2">
-                          <span>₹{Number(item.price).toFixed(2)} / {item.price_unit === 'kg' ? 'Kg' : 'Piece'}</span>
+                          <div className="leading-tight">
+                            <span className="block font-bold text-gray-900">
+                              ₹{Number(item.price).toFixed(2)}
+                              <span className="text-gray-500 font-medium text-xs">
+                                {" "}/ {item.price_unit === 'kg' ? 'kg' : 'piece'}
+                              </span>
+                            </span>
+                            <span className="block text-[11px] font-medium text-gray-400 mt-0.5">
+                              {item.price_unit === 'kg'
+                                ? `≈ ₹${(Number(item.price) / 1000).toFixed(3)} / g · ${formatGrams(1000)}`
+                                : `Quantity: 1 piece`}
+                            </span>
+                          </div>
                           <button onClick={() => { setEditingPriceId(item.id); setEditingPriceValue(String(item.price)); }} className="text-gray-400 hover:text-brand-600 transition p-1">
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
-                      )}
-                    </td>
-                    <td className="py-4 px-6">
-                      {item.cookable ? (
-                        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-xs font-semibold bg-energy-100 text-energy-700">
-                          <ChefHat className="w-3 h-3" />
-                          <span>Yes</span>
-                        </span>
-                      ) : (
-                        <span className="text-gray-400 text-xs">No</span>
                       )}
                     </td>
                     <td className="py-4 px-6">
@@ -1065,15 +1067,6 @@ export default function AdminMenuPage() {
                     <span className="truncate">{item.category}</span>
                     <span className="w-1 h-1 rounded-full bg-gray-300 shrink-0" />
                     <span className="shrink-0">{item.calories || 0} kcal</span>
-                    {item.cookable && (
-                      <>
-                        <span className="w-1 h-1 rounded-full bg-gray-300 shrink-0" />
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-energy-700 bg-energy-50 px-1.5 py-0.5 rounded shrink-0">
-                          <ChefHat className="w-3 h-3" />
-                          Cookable
-                        </span>
-                      </>
-                    )}
                   </p>
                 </div>
                 {(() => { const cfg = getDietConfig(item.diet); return <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${cfg.classes}`}>{cfg.label}</span>; })()}
@@ -1114,7 +1107,17 @@ export default function AdminMenuPage() {
                     </div>
                   ) : (
                     <>
-                      <span className="font-bold text-gray-900 text-sm shrink-0">₹{Number(item.price).toFixed(2)}<span className="text-gray-500 font-medium text-xs"> / {item.price_unit === 'kg' ? 'Kg' : 'Piece'}</span></span>
+                      <div className="min-w-0">
+                        <span className="block font-bold text-gray-900 text-sm">
+                          ₹{Number(item.price).toFixed(2)}
+                          <span className="text-gray-500 font-medium text-xs"> / {item.price_unit === 'kg' ? 'kg' : 'piece'}</span>
+                        </span>
+                        <span className="block text-[11px] font-medium text-gray-400 mt-0.5">
+                          {item.price_unit === 'kg'
+                            ? `≈ ₹${(Number(item.price) / 1000).toFixed(3)} / g · Quantity: ${formatGrams(1000)}`
+                            : 'Quantity: 1 piece'}
+                        </span>
+                      </div>
                       <button onClick={() => { setEditingPriceId(item.id); setEditingPriceValue(String(item.price)); }} className="p-2 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition shrink-0 min-w-[36px] min-h-[36px] flex items-center justify-center" aria-label="Edit price">
                         <Edit2 className="w-4 h-4" />
                       </button>
@@ -1267,8 +1270,15 @@ export default function AdminMenuPage() {
 
                 {/* PRICE */}
                 <div className="min-w-0">
-                  <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-2">Price</label>
+                  <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-2">
+                    Price ({editingItem.price_unit === 'kg' ? '₹ per kg' : '₹ per piece'})
+                  </label>
                   <input type="number" min="0" step="0.01" required value={editingItem.price} onChange={(e) => setEditingItem({ ...editingItem, price: Number(e.target.value), })} placeholder="Enter price" className="w-full min-w-0 px-3 sm:px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm" />
+                  <p className="mt-1.5 text-[11px] font-medium text-gray-500">
+                    {editingItem.price_unit === 'kg'
+                      ? <>Priced per kg — approx. <span className="font-bold text-gray-700">₹{(Number(editingItem.price) / 1000).toFixed(3)} / g</span> ({formatGrams(1000)})</>
+                      : <>Priced per piece — <span className="font-bold text-gray-700">Quantity: 1 piece · ₹{Number(editingItem.price).toFixed(2)} / piece</span></>}
+                  </p>
                 </div>
 
                 {/* PRICE UNIT */}
@@ -1276,10 +1286,10 @@ export default function AdminMenuPage() {
                   <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-2">Price By</label>
                   <div className="grid grid-cols-2 gap-2 sm:gap-3">
                     <button type="button" onClick={() => setEditingItem({ ...editingItem, price_unit: 'kg', })} className={`px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${editingItem.price_unit === 'kg' ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 active:bg-gray-50'}`}>
-                      Price Per Kg
+                      Per Kg (grams)
                     </button>
                     <button type="button" onClick={() => setEditingItem({ ...editingItem, price_unit: 'piece', })} className={`px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${editingItem.price_unit === 'piece' ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 active:bg-gray-50'}`}>
-                      Price Per Piece
+                      Per Piece
                     </button>
                   </div>
                 </div>
@@ -1387,53 +1397,6 @@ export default function AdminMenuPage() {
                     </button>
 
                   </div>
-
-                </div>
-
-                {/* COOKABLE */}
-                <div>
-
-                  <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-2">
-                    Cookable
-                  </label>
-
-                  <div className="grid grid-cols-2 gap-2 sm:gap-3">
-
-                    {/* YES */}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setEditingItem({
-                          ...editingItem,
-                          cookable: true,
-                        })
-                      }
-                      className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${editingItem.cookable ? 'border-energy-500 bg-energy-50 text-energy-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 active:bg-gray-50'}`}
-                    >
-                      <ChefHat className="w-4 h-4 shrink-0" />
-                      <span className="truncate">Yes</span>
-                    </button>
-
-                    {/* NO */}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setEditingItem({
-                          ...editingItem,
-                          cookable: false,
-                        })
-                      }
-                      className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${!editingItem.cookable ? 'border-gray-400 bg-gray-100 text-gray-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 active:bg-gray-50'}`}
-                    >
-                      <X className="w-4 h-4 shrink-0" />
-                      <span className="truncate">No</span>
-                    </button>
-
-                  </div>
-
-                  <p className="text-[11px] text-gray-400 mt-1.5">
-                    Mark items that need cooking.
-                  </p>
 
                 </div>
 
@@ -1548,14 +1511,21 @@ export default function AdminMenuPage() {
               {/* PRICE & PRICE UNIT */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div className="min-w-0">
-                  <label className="block font-bold text-gray-700 mb-1 text-xs sm:text-sm">Price (₹)</label>
+                  <label className="block font-bold text-gray-700 mb-1 text-xs sm:text-sm">
+                    Price ({newItem.price_unit === 'kg' ? '₹ per kg' : '₹ per piece'})
+                  </label>
                   <input type="number" min="0" step="0.5" required value={newItem.price} onChange={(e) => setNewItem({ ...newItem, price: parseFloat(e.target.value) || 0, })} className="w-full min-w-0 px-3 py-3 sm:py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                  <p className="mt-1.5 text-[11px] font-medium text-gray-500">
+                    {newItem.price_unit === 'kg'
+                      ? <>Priced per kg — approx. <span className="font-bold text-gray-700">₹{(Number(newItem.price) / 1000).toFixed(3)} / g</span> ({formatGrams(1000)})</>
+                      : <>Priced per piece — <span className="font-bold text-gray-700">Quantity: 1 piece · ₹{Number(newItem.price).toFixed(2)} / piece</span></>}
+                  </p>
                 </div>
                 <div className="min-w-0">
                   <label className="block font-bold text-gray-700 mb-1 text-xs sm:text-sm">Price By</label>
                   <select value={newItem.price_unit} onChange={(e) => setNewItem({ ...newItem, price_unit: e.target.value as PriceUnit, })} className="w-full min-w-0 px-3 py-3 sm:py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
                     <option value="piece">Per Piece</option>
-                    <option value="kg">Per Kg</option>
+                    <option value="kg">Per Kg (grams)</option>
                   </select>
                 </div>
               </div>
@@ -1629,22 +1599,6 @@ export default function AdminMenuPage() {
                     Out of Stock
                   </button>
                 </div>
-              </div>
-
-              {/* COOKABLE */}
-              <div>
-                <label className="block font-bold text-gray-700 mb-2 text-xs sm:text-sm">Cookable</label>
-                <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                  <button type="button" onClick={() => setNewItem({ ...newItem, cookable: true, })} className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${newItem.cookable ? 'border-energy-500 bg-energy-50 text-energy-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}>
-                    <ChefHat className="w-4 h-4 shrink-0" />
-                    <span className="truncate">Yes</span>
-                  </button>
-                  <button type="button" onClick={() => setNewItem({ ...newItem, cookable: false, })} className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-3 rounded-xl border-2 font-bold text-xs sm:text-sm transition min-h-[44px] ${!newItem.cookable ? 'border-gray-400 bg-gray-100 text-gray-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}>
-                    <X className="w-4 h-4 shrink-0" />
-                    <span className="truncate">No</span>
-                  </button>
-                </div>
-                <p className="text-[11px] text-gray-400 mt-1.5">Mark items that need cooking.</p>
               </div>
 
               {/* BUTTONS - stack on mobile */}

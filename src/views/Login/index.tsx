@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { ROUTES } from '@/lib/constants'
 import { useAuth } from '@/hooks/useAuth';
+import FuelBoxLogo from '@/components/FuelBoxLogo';
 
 // ---------------------------------------------------------------------------
 // FloatingInput
@@ -197,12 +198,11 @@ export default function Login() {
             <h1 className="mb-1 text-center text-[1.75rem] font-extrabold text-gray-900">
               Welcome Back! 💪🏻
             </h1>
-            <p className="mb-2 text-center text-[0.9rem] text-gray-500">
+            <p className="mb-3 text-center text-[0.9rem] text-gray-500">
               Login as admin
             </p>
-            <div className="mb-5 text-center">
-              <span className="text-[28px] font-extrabold text-[#e8510a]">Fuel </span>
-              <span className="text-[28px] font-extrabold text-green-500">Box</span>
+            <div className="mb-5 flex justify-center">
+              <FuelBoxLogo size={56} />
             </div>
 
             <div className="mb-5 flex items-center gap-3">

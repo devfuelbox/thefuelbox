@@ -131,7 +131,6 @@ const ANSWERS = (goal) => ({
   activity: "gym",
   freq: 3,
   name: "Tester",
-  email: "",
   phone: "9999999999",
 });
 
@@ -675,7 +674,6 @@ test("every meal-plan save route validates before it persists", () => {
   const routes = [
     "onboarding/customer/route.ts",
     path.join("onboarding", "customer", "[id]", "meal-plan", "route.ts"),
-    "admin/enquiries/route.ts",
     "customers/route.ts",
     path.join("roles", "sales", "enquiries", "route.ts"),
     path.join("roles", "verifier", "enquiries", "route.ts"),

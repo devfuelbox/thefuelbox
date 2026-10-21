@@ -22,7 +22,6 @@ const ALLOWED_FIELDS = [
   'diet',
   'category',
   'is_available',
-  'cookable',
   'min_grams',
   'max_grams',
   'goal_categories',
@@ -168,6 +167,9 @@ export async function PATCH(
       const attributes = (MenuItem as any).getAttributes?.();
       if (attributes && !attributes['price_unit'] && 'price_unit' in sanitised) {
         delete (sanitised as any)['price_unit'];
+      } else if ('price_unit' in sanitised && sanitised['price_unit'] !== 'kg' && sanitised['price_unit'] !== 'piece') {
+        // Closed set: anything unrecognised falls back to per-piece pricing.
+        sanitised['price_unit'] = 'piece';
       }
       // Same for the portion limits, so an un-migrated database never 500s
       if (attributes) {

@@ -26,33 +26,55 @@ async function createCustomerWithOrderId(Customer: any, fields: any) {
   throw new Error('Failed to assign a unique order id');
 }
 
+// ── Validation ────────────────────────────────────────────────────────────────
+// The onboarding wizard validates every field inline; these are the server-side
+// mirrors so a malformed or hand-built request can never reach the table.
+const PHONE_RE = /^[6-9]\d{9}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const GOALS = ['loss', 'gain', 'muscle', 'maintenance'];
+const FOODS = ['veg', 'egg', 'nonveg'];
+const ACTIVITIES = ['sedentary', 'active', 'gym'];
+const GENDERS = ['Male', 'Female'];
+
+function bad(error: string) {
+  return NextResponse.json({ success: false, error }, { status: 400 });
+}
+
+/** '' / null / undefined → null, otherwise a finite number (guarded earlier). */
+function numOrNull(v: any): number | null {
+  if (v === undefined || v === null || v === '') return null;
+  return Number(v);
+}
+
 export async function POST(req: Request) {
   try {
-    const data = await req.json();
-    const {
-      name,
-      phone,
-      email,
-      goal,
-      age,
-      gender,
-      height,
-      weight,
-      food,
-      activity,
-      freq,
-      loc_status,
-      loc_km,
-      loc_fee,
-      loc_lat,
-      loc_lng,
-      meal_plan,
-      meal_plan_price,
-      meal_plan_packages,
-    } = data;
+    const data: any = await req.json().catch(() => ({}));
 
-    if (!name || !phone) {
-      return NextResponse.json({ success: false, error: 'Name and phone are required' }, { status: 400 });
+    const name = typeof data.name === 'string' ? data.name.trim() : '';
+    if (!name) return bad('Name is required');
+
+    // One canonical phone shape (10-digit national number, digits only) so the
+    // same person always matches and updates one row — never a new duplicate.
+    const phone = String(data.phone ?? '').replace(/\D/g, '').slice(-10);
+    if (!PHONE_RE.test(phone)) {
+      return bad('A valid 10-digit mobile number is required');
+    }
+
+    const email = data.email == null ? '' : String(data.email).trim();
+    if (email && !EMAIL_RE.test(email)) return bad('A valid email address is required');
+
+    if (data.goal && !GOALS.includes(String(data.goal))) return bad('Unknown goal value');
+    if (data.food && !FOODS.includes(String(data.food))) return bad('Unknown food preference');
+    if (data.activity && !ACTIVITIES.includes(String(data.activity))) {
+      return bad('Unknown activity level');
+    }
+    if (data.gender && !GENDERS.includes(String(data.gender))) return bad('Unknown gender value');
+
+    for (const key of ['age', 'height', 'weight', 'freq'] as const) {
+      const v = data[key];
+      if (v !== undefined && v !== null && v !== '' && !Number.isFinite(Number(v))) {
+        return bad(`${key} must be a number`);
+      }
     }
 
     const { Customer, MenuItem } = await getDbModels();
@@ -60,37 +82,37 @@ export async function POST(req: Request) {
     // The onboarding clamps every gram it generates, but a hand-built request
     // must not be able to write a plan outside a food's configured window —
     // judged against the goal's own portion limits when one is present.
-    if (meal_plan) {
-      const check = await validateSavedMealPlan(meal_plan, MenuItem, goal);
+    if (data.meal_plan) {
+      const check = await validateSavedMealPlan(data.meal_plan, MenuItem, data.goal);
       if (!check.ok) {
-        return NextResponse.json({ success: false, error: check.message }, { status: 400 });
+        return bad(check.message);
       }
     }
 
-    // Check if customer with this phone already exists to update them, otherwise create
+    // ── Upsert by phone (no duplicate rows) ──────────────────────────────────
+    // Only the fields actually present in the request are written. The step-2
+    // save (profile only) therefore runs before the order save (profile + plan)
+    // without erasing anything the other one stored.
     let customer = await (Customer as any).findOne({ where: { phone } });
 
-    const fields = {
-      name,
-      phone,
-      email: email || null,
-      goal: goal || null,
-      age: age ? Number(age) : null,
-      gender: gender || null,
-      height: height ? Number(height) : null,
-      weight: weight ? Number(weight) : null,
-      food: food || null,
-      activity: activity || null,
-      freq: freq ? Number(freq) : null,
-      loc_status: loc_status || null,
-      loc_km: loc_km != null ? Number(loc_km) : null,
-      loc_fee: loc_fee != null ? Number(loc_fee) : null,
-      loc_lat: loc_lat != null ? Number(loc_lat) : null,
-      loc_lng: loc_lng != null ? Number(loc_lng) : null,
-      meal_plan: meal_plan || null,
-      meal_plan_price: meal_plan_price != null ? Number(meal_plan_price) : 0,
-      meal_plan_packages: meal_plan_packages || null,
-    };
+    const fields: any = { name, phone };
+    if (data.email !== undefined) fields.email = email || null;
+    if (data.goal !== undefined) fields.goal = data.goal || null;
+    if (data.gender !== undefined) fields.gender = data.gender || null;
+    if (data.food !== undefined) fields.food = data.food || null;
+    if (data.activity !== undefined) fields.activity = data.activity || null;
+    if (data.loc_status !== undefined) fields.loc_status = data.loc_status || null;
+    if (data.age !== undefined) fields.age = numOrNull(data.age);
+    if (data.height !== undefined) fields.height = numOrNull(data.height);
+    if (data.weight !== undefined) fields.weight = numOrNull(data.weight);
+    if (data.freq !== undefined) fields.freq = numOrNull(data.freq);
+    if (data.loc_km !== undefined) fields.loc_km = numOrNull(data.loc_km);
+    if (data.loc_fee !== undefined) fields.loc_fee = numOrNull(data.loc_fee);
+    if (data.loc_lat !== undefined) fields.loc_lat = numOrNull(data.loc_lat);
+    if (data.loc_lng !== undefined) fields.loc_lng = numOrNull(data.loc_lng);
+    if (data.meal_plan !== undefined) fields.meal_plan = data.meal_plan || null;
+    if (data.meal_plan_price !== undefined) fields.meal_plan_price = Number(data.meal_plan_price) || 0;
+    if (data.meal_plan_packages !== undefined) fields.meal_plan_packages = data.meal_plan_packages || null;
 
     if (customer) {
       await customer.update(fields);

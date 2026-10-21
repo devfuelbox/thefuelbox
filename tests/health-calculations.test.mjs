@@ -43,7 +43,6 @@ const BASE = {
   activity: "sedentary",
   freq: 3,
   name: "",
-  email: "",
   phone: "",
 };
 

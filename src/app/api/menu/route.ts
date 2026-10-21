@@ -26,8 +26,8 @@ export async function GET() {
 
 // Allowed fields for creating a menu item (whitelist to prevent mass-assignment)
 const ALLOWED_FIELDS = [
-  'name', 'description', 'price', 'calories', 'protein_g', 'carbs_g',
-  'fat_g', 'fiber_g', 'diet', 'category', 'is_available', 'cookable',
+  'name', 'description', 'price', 'price_unit', 'calories', 'protein_g', 'carbs_g',
+  'fat_g', 'fiber_g', 'diet', 'category', 'is_available',
   'min_grams', 'max_grams', 'goal_categories', 'goal_portions', 'image_url',
 ] as const;
 
@@ -68,6 +68,11 @@ export async function POST(req: Request) {
     }
     if (sanitised.name.length > 200) {
       return NextResponse.json({ message: 'name too long' }, { status: 400 });
+    }
+
+    // price_unit is a small closed set; anything else falls back to per-piece.
+    if ('price_unit' in sanitised && sanitised.price_unit !== 'kg' && sanitised.price_unit !== 'piece') {
+      sanitised.price_unit = 'piece';
     }
 
     // Normalize image_url to relative path — never store https://localhost:3000...

@@ -1,21 +1,20 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-
 // ─── The FuelBox animated logo ────────────────────────────────────────────
-// Ported from the reference calculator HTML ("The FuelBox · Daily Nutrition
-// Calculator"). It plays one ~1.3s sequence on mount (base drops in, lid
-// settles, knob pops, shine sweeps, the "THE" bar lifts, then three steam
-// wisps rise and waft) and then holds still. Tapping the mark peeks the lid
-// open and puffs the steam. Reduced-motion users get the still logo.
+// Ported from "The FuelBox · Logo" reference HTML. It plays a short entrance
+// (mark drops in, wordmark settles, rule draws), then holds: the lid rattles
+// in a 3s burst-then-rest loop while three steam wisps drift up. Reduced-motion
+// users get the still logo with the lid closed.
 //
 // The class names / keyframe names are prefixed `fb-logo-` so they cannot
 // collide with Tailwind or any other global stylesheet on the site.
 
+import { useId } from "react";
+
 const FOREST = "#1F3D2B";
 
 const LOGO_CSS = `
-.fb-logo{display:block;width:84px;height:auto;margin:0 auto;color:${FOREST};overflow:visible;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.fb-logo{display:block;width:84px;height:auto;margin:0 auto;color:${FOREST};overflow:visible}
 .fb-logo-mark{font-family:'Lora',Georgia,'Times New Roman',serif;font-weight:500;letter-spacing:.2em;color:${FOREST};font-size:24px;line-height:1.2;margin-top:8px;text-align:center}
 .fb-logo-rule{width:48px;height:2px;background:${FOREST};margin:8px auto 0}
 @media (max-width:480px){
@@ -23,71 +22,74 @@ const LOGO_CSS = `
   .fb-logo-mark{font-size:17px;margin-top:4px}
   .fb-logo-rule{margin-top:6px}
 }
+
 @media (prefers-reduced-motion:no-preference){
-  .fb-logo .base{animation:fb-logo-baseIn .35s ease-out both}
-  .fb-logo .lid{transform-box:fill-box;transform-origin:right bottom;animation:fb-logo-lidDrop .5s .1s cubic-bezier(.3,1.45,.55,1) backwards;transition:transform .35s cubic-bezier(.3,1.4,.5,1)}
-  .fb-logo .knob{transform-box:fill-box;transform-origin:center bottom;animation:fb-logo-knobPop .35s .55s cubic-bezier(.3,1.7,.5,1) backwards}
-  .fb-logo .shine{stroke-dasharray:240;animation:fb-logo-shine .5s .7s ease-out backwards}
-  .fb-logo .bar{transform-box:fill-box;transform-origin:center;animation:fb-logo-barLift .7s .5s ease-in-out}
+  .fb-logo{animation:fb-logo-in .14s cubic-bezier(.33,0,.2,1) both}
+  .fb-logo .lid{transform-box:fill-box;transform-origin:center bottom;animation:fb-logo-rattle 3s .25s linear infinite}
+  .fb-logo .shine{stroke-dasharray:240;animation:fb-logo-shine .18s .04s cubic-bezier(.4,0,.2,1) backwards}
   .fb-logo .steam path{stroke-dasharray:110;transform-box:fill-box;transform-origin:center bottom}
-  .fb-logo .steam path:nth-child(1){animation:fb-logo-steamUp .5s .5s ease-out backwards, fb-logo-waft 2.2s 1.3s ease-in-out 3}
-  .fb-logo .steam path:nth-child(2){animation:fb-logo-steamUp .5s .6s ease-out backwards, fb-logo-waft 2.2s 1.5s ease-in-out 3}
-  .fb-logo .steam path:nth-child(3){animation:fb-logo-steamUp .5s .7s ease-out backwards, fb-logo-waft 2.2s 1.7s ease-in-out 3}
-  /* Tap: the lid peeks open and the steam puffs out */
-  .fb-logo.open .lid{transform:translateY(-12px) rotate(12deg)}
-  .fb-logo.open .steam{animation:fb-logo-puff .7s ease-out}
-  .fb-logo-mark{animation:fb-logo-markIn .55s .65s ease-out both}
-  .fb-logo-rule{animation:fb-logo-ruleIn .4s .95s ease-out both}
-  @keyframes fb-logo-knobPop{from{transform:scale(0)}to{transform:none}}
+  .fb-logo .steam path:nth-child(1){animation:fb-logo-steam .14s .05s cubic-bezier(.4,0,.2,1) backwards, fb-logo-drift 6s .35s ease-in-out infinite}
+  .fb-logo .steam path:nth-child(2){animation:fb-logo-steam .14s .07s cubic-bezier(.4,0,.2,1) backwards, fb-logo-drift 6s .6s ease-in-out infinite}
+  .fb-logo .steam path:nth-child(3){animation:fb-logo-steam .14s .09s cubic-bezier(.4,0,.2,1) backwards, fb-logo-drift 6s .85s ease-in-out infinite}
+  .fb-logo-mark{animation:fb-logo-mark .16s .05s cubic-bezier(.33,0,.2,1) both}
+  .fb-logo-rule{animation:fb-logo-rule .12s .10s cubic-bezier(.33,0,.2,1) both}
+
+  @keyframes fb-logo-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
   @keyframes fb-logo-shine{from{stroke-dashoffset:240}to{stroke-dashoffset:0}}
-  @keyframes fb-logo-barLift{0%,100%{transform:none}45%{transform:translateY(-18px)}60%{transform:translateY(-18px)}}
-  @keyframes fb-logo-waft{0%,100%{opacity:1;transform:none}50%{opacity:.4;transform:translateY(-10px) scaleY(1.08)}}
-  @keyframes fb-logo-puff{0%{transform:none;opacity:1}45%{transform:translateY(-26px);opacity:.25}100%{transform:none;opacity:1}}
-  @keyframes fb-logo-baseIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
-  @keyframes fb-logo-lidDrop{from{opacity:0;transform:translateY(-70px)}to{opacity:1;transform:none}}
-  @keyframes fb-logo-steamUp{from{stroke-dashoffset:110}to{stroke-dashoffset:0}}
-  @keyframes fb-logo-markIn{from{opacity:0;transform:translateY(6px);letter-spacing:.4em}to{opacity:1;transform:none;letter-spacing:.2em}}
-  @keyframes fb-logo-ruleIn{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+  @keyframes fb-logo-steam{from{stroke-dashoffset:110}to{stroke-dashoffset:0}}
+  @keyframes fb-logo-mark{from{opacity:0;transform:translateY(6px);letter-spacing:.4em}to{opacity:1;transform:none;letter-spacing:.2em}}
+  @keyframes fb-logo-rule{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+  /* Idle drift: opacity carries it, displacement is near-subliminal. */
+  @keyframes fb-logo-drift{0%,100%{opacity:1;transform:none}50%{opacity:.55;transform:translateY(-22px) scaleY(1.05)}}
+  /* Rattle: 0.45s burst, then 2.55s still. Decaying beats, linear so each flick stays sharp. */
+  @keyframes fb-logo-rattle{
+    0%,15%,100%{transform:none}
+    2.5% {transform:translate(-10px,-24px) rotate(6deg)}
+    5.65%{transform:translate(12px,-10px)  rotate(-7deg)}
+    8.8% {transform:translate(-8px,-18px)  rotate(4.5deg)}
+    11.9%{transform:translate(5px,-6px)    rotate(-2.5deg)}
+  }
 }
 `;
 
 export function FuelBoxLogo({
   showWordmark = true,
   showRule = true,
+  size,
+  color = FOREST,
+  wordmarkColor,
+  ruleColor,
+  className,
 }: {
   showWordmark?: boolean;
   showRule?: boolean;
+  /** Mark width in px. Omit to use the responsive default (84px / 52px small). */
+  size?: number;
+  /** Current-colour for the mark (pot, steam, lid, "THE"). */
+  color?: string;
+  /** Wordmark colour. Defaults to `color`. */
+  wordmarkColor?: string;
+  /** Rule colour. Defaults to `color`. */
+  ruleColor?: string;
+  className?: string;
 }) {
-  const svgRef = useRef<SVGSVGElement>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Tap the mark: lid peeks open, steam puffs (mirrors the reference HTML).
-  const handleClick = () => {
-    const el = svgRef.current;
-    if (!el) return;
-    el.classList.remove("open");
-    void el.getBoundingClientRect(); // force reflow so the class can re-trigger
-    el.classList.add("open");
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => el.classList.remove("open"), 900);
-  };
-
-  useEffect(() => {
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, []);
+  // Each instance gets a unique scope class so a fixed `size` on one logo
+  // cannot leak onto another (all instances inject the same base CSS).
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, "");
+  const scope = `fb-logo-scope-${uid}`;
+  const sizedCSS = size
+    ? `${LOGO_CSS}\n.${scope} .fb-logo{width:${size}px}`
+    : LOGO_CSS;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-      <style dangerouslySetInnerHTML={{ __html: LOGO_CSS }} />
+    <div className={`${scope}${className ? ` ${className}` : ""}`} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+      <style dangerouslySetInnerHTML={{ __html: sizedCSS }} />
       <svg
-        ref={svgRef}
         className="fb-logo"
         viewBox="40 25 560 600"
         role="img"
         aria-label="The FuelBox logo"
-        onClick={handleClick}
+        style={color === FOREST ? undefined : { color }}
       >
         <g className="base">
           <path d="M62,350 H578" fill="none" stroke="currentColor" strokeWidth={11} strokeLinecap="round" />
@@ -144,8 +146,20 @@ export function FuelBoxLogo({
         </g>
       </svg>
 
-      {showWordmark && <div className="fb-logo-mark">FUELBOX</div>}
-      {showRule && <div className="fb-logo-rule" />}
+      {showWordmark && (
+        <div
+          className="fb-logo-mark"
+          style={wordmarkColor || color !== FOREST ? { color: wordmarkColor || color } : undefined}
+        >
+          FUELBOX
+        </div>
+      )}
+      {showRule && (
+        <div
+          className="fb-logo-rule"
+          style={ruleColor || color !== FOREST ? { background: ruleColor || color } : undefined}
+        />
+      )}
     </div>
   );
 }

@@ -21,7 +21,6 @@ export interface OnboardingAnswers {
   activityMultiplier?: number | null
   freq: number | null
   name: string
-  email: string
   phone: string
   preferredSlots?: string[]
 }

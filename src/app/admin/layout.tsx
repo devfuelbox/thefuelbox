@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  LayoutDashboard, Utensils, ShoppingBag, Users, LogOut, ShieldAlert,
-  ChevronLeft, ChevronRight, Menu, X, BarChart3, Settings, HelpCircle, DollarSign, CalendarCheck,
-  ClipboardList, CheckSquare, ChefHat, Truck, UserPlus, MapPin, Phone, UserCheck
+  LayoutDashboard, Utensils, LogOut, ShieldAlert,
+  ChevronLeft, ChevronRight, Menu, X, BarChart3, Settings, HelpCircle,
+  CheckSquare, ChefHat, Truck, UserPlus, MapPin, UserCheck
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import FuelBoxLogo from '@/components/FuelBoxLogo';
 
 const ROLE_NAMES: Record<string, string> = {
   super_admin: 'Super Admin',
@@ -73,11 +74,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   if (isSuperOrAdmin) {
     navItems.push(
       { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
-      { href: '/admin/enquiries', label: 'Payment', icon: DollarSign },
-      { href: '/admin/subscriptions', label: 'Subscriptions', icon: CalendarCheck },
       { href: '/admin/menu', label: 'Menu & Prices', icon: Utensils },
-      { href: '/admin/orders', label: 'Customer Enquire', icon: ShoppingBag },
-      { href: '/admin/users', label: 'User Management', icon: Users },
     );
   }
 
@@ -90,16 +87,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (isSuperOrAdmin) {
     navItems.push(
-      { href: '/admin/roles/sales', label: 'Sales Dashboard', icon: ClipboardList },
+      { href: '/admin/roles/sales', label: 'Clients', icon: UserCheck },
+      { href: '/admin/roles/sales/new', label: 'New Client', icon: UserPlus },
       { href: '/admin/roles/chef', label: 'Chef Dashboard', icon: ChefHat },
     );
   }
 
   if (userRole === 'sales') {
     navItems.push(
-      { href: '/admin/roles/sales', label: 'Sales Dashboard', icon: ClipboardList },
-      { href: '/admin/enquiries', label: 'Payment', icon: DollarSign },
-      { href: '/admin/subscriptions', label: 'Subscriptions', icon: CalendarCheck },
+      { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
+      { href: '/admin/roles/sales', label: 'Clients', icon: UserCheck },
+      { href: '/admin/roles/sales/new', label: 'New Client', icon: UserPlus },
     );
   }
 
@@ -124,7 +122,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (!authorized) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center admin-surface">
         <div className="text-center space-y-3">
           <ShieldAlert className="w-12 h-12 text-amber-500 mx-auto animate-bounce" />
           <p className="text-gray-600 font-bold">Verifying Permissions...</p>
@@ -141,12 +139,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   };
 
   const sidebarWidth = collapsed ? 'w-20' : 'w-64';
-  const logoText = collapsed ? 'FB' : 'FuelBox';
   const roleColor = ROLE_COLORS[userRole] || 'from-emerald-400 to-emerald-600';
   const roleLabel = ROLE_NAMES[userRole] || 'Staff';
 
   return (
-    <div className="h-screen overflow-hidden bg-gray-50 flex">
+    <div className="h-screen overflow-hidden admin-surface flex">
       {/* Mobile Overlay */}
       {mobileOpen && (
         <div
@@ -164,15 +161,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         {/* Logo & Toggle Header */}
         <div className="flex items-center justify-between px-4 h-16 border-b border-gray-800 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
-            <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${roleColor} flex items-center justify-center shrink-0`}>
-              <span className="text-white font-black text-sm">{logoText[0]}</span>
-            </div>
-            {!collapsed && (
-              <div className="flex items-center gap-1.5 truncate">
-                <span className="text-lg font-extrabold bg-gradient-to-r from-emerald-400 to-amber-400 bg-clip-text text-transparent">
-                  FuelBox
-                </span>
-                <span className="px-1.5 py-0.5 bg-amber-500 text-white rounded text-[9px] font-bold uppercase leading-tight">
+            {collapsed ? (
+              <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${roleColor} flex items-center justify-center shrink-0`}>
+                <span className="text-white font-black text-sm">F</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 min-w-0">
+                <FuelBoxLogo size={30} color="#F3EDDF" showWordmark={false} showRule={false} />
+                <span className="text-lg font-extrabold text-[#F3EDDF] truncate">FuelBox</span>
+                <span className="px-1.5 py-0.5 bg-amber-500 text-white rounded text-[9px] font-bold uppercase leading-tight shrink-0">
                   {roleLabel}
                 </span>
               </div>
@@ -196,7 +193,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1 scrollbar-thin scrollbar-thumb-gray-700">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const active = pathname === item.href || pathname.startsWith(item.href + '/');
+            // Match the exact route or a nested route, but never let a parent
+            // highlight while a more specific sibling (e.g. /sales/new over
+            // /sales) is the active one.
+            const active =
+              pathname === item.href ||
+              (pathname.startsWith(item.href + '/') &&
+                !navItems.some(
+                  (other) =>
+                    other.href !== item.href &&
+                    other.href.startsWith(item.href + '/') &&
+                    (pathname === other.href || pathname.startsWith(other.href + '/')),
+                ));
             return (
               <Link
                 key={item.href}

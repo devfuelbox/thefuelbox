@@ -1,19 +1,11 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Home, Utensils, Receipt } from "lucide-react";
 import FuelBoxLogo from "@/components/FuelBoxLogo";
 import { slideInLeft, slideInRight, EASE_OUT } from "@/lib/motion";
-
-// The 3D fitness backdrop is lazy + client-only so three.js never enters the
-// server bundle or the critical rendering path.
-const FitnessScene = dynamic(
-  () => import("@/components/three/FitnessScene"),
-  { ssr: false },
-);
 import { useAuthStore } from "@/store/authStore";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import { onboardingSupabase } from "@/lib/onboardingSupabaseClient";
@@ -63,7 +55,7 @@ const C = {
 };
 const FOREST = "#1F3D2B";
 const FOREST_2 = "#2C5540";
-const CREAM = "#F3EDDF";
+const CREAM = "linear-gradient(135deg, #e2f0e2, #fde8d8)";
 const PAPER = "#FBF8F1";
 const TINT = "#E6EEDF"; // soft green fill for selected / protein
 const CTA_GREEN = "#1E7A46";
@@ -71,8 +63,31 @@ const FONT_DISPLAY = "'Lora', Georgia, 'Times New Roman', serif";
 const FONT_BODY =
   "'Work Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 
+// Persist the customer to the existing `customers` table through the same
+// endpoint the WhatsApp order flow uses. The API upserts by phone, so the
+// profile save (step 2) and the later order save update one row — never a
+// duplicate. Never throws: the caller decides whether/how to warn the user.
+async function saveCustomerToDb(
+  payload: Record<string, unknown>,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch("/api/onboarding/customer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body: any = await res.json().catch(() => ({}));
+    if (!res.ok || body?.success === false) {
+      return { ok: false, error: body?.error || `Save failed (${res.status})` };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || "Network error" };
+  }
+}
+
 // ─── BUSINESS CONFIG ─────────────────────────────────────
-const WA_NUMBER = "919384302527"; // Ajith
+const WA_NUMBER = "9178100 29931"; // Ajith
 // The Fuel Box, 14 A2, Masakalipalayam Road, Metha Layout, POAD, Peelamedu,
 // Coimbatore, Tamil Nadu 641004. Every distance, free/paid zone and delivery
 // fee on this page is measured from this one point — the customer's own
@@ -1292,24 +1307,21 @@ function Result({
   };
 
   const waLink = () => {
-    const mealsTxt = planToUse.meals
-      .map(
-        (m: any) =>
-          `${cov.delNames.includes(m.name) ? "🟨" : "▫️"} ${m.name}: ${m.items.map((it: any) => `${ing[it.id].n} ${fmtQty(ing, it)}`).join(", ")}`,
-      )
-      .join("\n");
+    // The message is a plan *summary* only. The meal-wise food breakdown
+    // (Morning / Afternoon / Night with each item and its grams) is
+    // deliberately not sent — the WhatsApp thread stays short.
+    const slotsTxt = (a.preferredSlots || []).join(" + ");
     const locTxt =
       loc.km != null
         ? `Location: ${loc.km} km from The Fuel Box, Peelamedu (maps.google.com/?q=${loc.lat},${loc.lng}) — ${loc.status === "free" ? "FREE delivery" : loc.status === "paid" ? `delivery ₹${loc.fee}/day` : "outside zone (waitlist)"}`
         : "Location: will confirm on WhatsApp";
     const msg =
-      `Hi Ajith! ${waitlist ? "WAITLIST — outside 30km.\n" : ""}FuelBox plan for ${a.name}:\n` +
-      `Goal: ${a.goal ? GOALS[a.goal].label : ""} (${a.goal ? GOALS[a.goal].plan : ""}) · ${a.food} · ${FREQS[freq as keyof typeof FREQS].label}\n` +
-      `Target: ${planToUse.protT}g protein · ~${planToUse.kcalT} kcal/day\n` +
-      `FuelBox covers: ${cov.delProt}g/day (🟨 = FuelBox delivers)\n\n${mealsTxt}\n\n` +
-      `Food ₹${cov.price}/day${delivFee != null ? ` + delivery ₹${delivFee}/day` : " + delivery TBD"}\n` +
-      `26-day pack ≈ ₹${(cov.price + (delivFee || 0)) * 26}\n` +
-      `Timeline: ${tl.big} ${tl.sub}\n${locTxt}\nPhone: ${a.phone}`;
+      `Hello 😊 FuelBox plan for ${a.name}:\n` +
+      `Goal: ${a.goal ? GOALS[a.goal].label : ""} (${a.goal ? GOALS[a.goal].plan : ""}) · ${a.food}\n` +
+      `Meals per day: ${freq}${slotsTxt ? ` — ${slotsTxt}` : ""}\n` +
+      `Targets: ${fixedTarget.calories} kcal · ${fixedTarget.protein}g protein · ${fixedTarget.carbs}g carbs · ${fixedTarget.fat}g fat · ${fixedTarget.fiber}g fiber\n` +
+      `FuelBox covers: ${cov.delProt}g protein/day\n` +
+      `${locTxt}`;
     return `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(msg)}`;
   };
 
@@ -1419,37 +1431,40 @@ function Result({
     };
 
     try {
-      // Save customer + final (possibly customized) plan to DB
+      // Save customer + final (possibly customized) plan to DB. Same helper as
+      // the step-2 profile save, so this updates the one row for this phone.
       const delivPerDay = delivFee || 0;
       const packages = [
         { name: "5-day trial", days: 5, price: Math.round((cov.price + delivPerDay) * 5) },
         { name: "26-day pack", days: 26, price: Math.round((cov.price + delivPerDay) * 26) },
       ];
-      const res = await fetch("/api/onboarding/customer", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: a.name,
-          phone: a.phone,
-          email: a.email,
-          goal: a.goal,
-          age: a.age,
-          gender: a.gender,
-          height: a.height,
-          weight: a.weight,
-          food: a.food,
-          activity: a.activity,
-          freq,
-          loc_status: loc.status,
-          loc_km: loc.km,
-          loc_fee: loc.fee,
-          loc_lat: loc.lat,
-          loc_lng: loc.lng,
-          meal_plan: deliveredPlan,
-          meal_plan_price: packages[1].price,
-          meal_plan_packages: packages,
-        }),
+      const saved = await saveCustomerToDb({
+        name: a.name,
+        phone: a.phone,
+        goal: a.goal,
+        age: a.age,
+        gender: a.gender,
+        height: a.height,
+        weight: a.weight,
+        food: a.food,
+        activity: a.activity,
+        freq,
+        loc_status: loc.status,
+        loc_km: loc.km,
+        loc_fee: loc.fee,
+        loc_lat: loc.lat,
+        loc_lng: loc.lng,
+        meal_plan: deliveredPlan,
+        meal_plan_price: packages[1].price,
+        meal_plan_packages: packages,
       });
+      if (!saved.ok) {
+        // Non-blocking — still open WhatsApp even if the DB write failed.
+        console.error("[Order] Failed to save customer to DB:", saved.error);
+        showToast(
+          "We couldn't save your details just now — we'll pick them up from WhatsApp.",
+        );
+      }
     } catch (err: any) {
       console.error("[Order] Failed to save customer to DB:", err);
       // Non-blocking — still open WhatsApp even if DB write fails
@@ -1476,6 +1491,14 @@ function Result({
   ]
     .filter(Boolean)
     .join(" · ");
+
+  // Labelled read-outs shown as chips under the profile line, so BMI reads as a
+  // result alongside the macro targets rather than only inside a sentence.
+  const resultFacts = [
+    { k: "BMI", v: metrics.bmi.toFixed(1) },
+    { k: "Goal", v: a.goal ? GOALS[a.goal].label : "" },
+    { k: "Activity", v: activityLine },
+  ].filter((f) => f.v);
 
   return (
     <div key="s9" style={{ paddingTop: 12 }}>
@@ -1626,6 +1649,39 @@ function Result({
             {detailsLine}
           </p>
         )}
+        {resultFacts.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              padding: "12px 18px",
+              borderBottom: `1px solid ${C.line}`,
+              background: "#fff",
+            }}
+          >
+            {resultFacts.map((f) => (
+              <span
+                key={f.k}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "baseline",
+                  gap: 6,
+                  border: `1px solid ${C.line}`,
+                  borderRadius: 999,
+                  padding: "4px 11px",
+                  background: TINT,
+                  fontFamily: FONT_BODY,
+                  fontSize: 12.5,
+                  color: C.muted,
+                }}
+              >
+                {f.k}
+                <b style={{ color: FOREST, fontWeight: 700 }}>{f.v}</b>
+              </span>
+            ))}
+          </div>
+        )}
         <div
           style={{
             padding: 18,
@@ -1705,6 +1761,24 @@ function Result({
             : a.goal === "maintenance"
               ? "This target holds your current weight."
               : "This target adds a surplus to support gain."}
+        </p>
+        <p
+          style={{
+            fontFamily: FONT_BODY,
+            fontSize: 12,
+            color: C.muted,
+            padding: "10px 18px 14px",
+            margin: 0,
+            lineHeight: 1.5,
+            borderTop: `1px dashed ${C.line}`,
+            background: "#fff",
+          }}
+        >
+          These numbers are estimates based on the details you entered
+          {a.age && a.height && a.weight ? " (Mifflin-St Jeor equation)" : ""}.
+          They are general guidance, not medical advice — please consult a
+          qualified professional before changing your diet, especially if you
+          have a medical condition.
         </p>
       </div>
 
@@ -1929,67 +2003,6 @@ function Result({
         🏠 Go To Home
       </button> */}
 
-      <div
-        style={{
-          background: C.card,
-          border: `1.5px solid ${C.line}`,
-          borderRadius: 12,
-          padding: "12px 14px",
-          margin: "18px 0 0",
-        }}
-      >
-        <div
-          style={{
-            fontFamily: FONT_BODY,
-            fontSize: 12,
-            color: C.bone,
-            lineHeight: 1.6,
-          }}
-        >
-          <b style={{ color: C.yolk }}>Balanced by design.</b> Your box isn't
-          protein alone — rice, chapati, veg and fruit come with it, so you get
-          fiber and energy too. Targets stay inside safe limits.
-        </div>
-        <div
-          style={{
-            fontFamily: FONT_BODY,
-            fontSize: 12,
-            color: C.muted,
-            lineHeight: 1.6,
-            marginTop: 6,
-          }}
-        >
-          Have kidney issues, diabetes, or are pregnant? Please check with your
-          doctor before starting.
-        </div>
-      </div>
-
-      <div
-        style={{
-          fontFamily: FONT_BODY,
-          fontSize: 14,
-          color: C.bone,
-          fontWeight: 700,
-          textAlign: "center",
-          margin: "18px 0 4px",
-        }}
-      >
-        We know brother — you can do this. Namma achieve pannuvom. 💪
-      </div>
-      <div
-        style={{
-          fontFamily: FONT_BODY,
-          fontSize: 11,
-          color: C.muted,
-          textAlign: "center",
-          lineHeight: 1.5,
-          margin: "10px 0 4px",
-        }}
-      >
-        Timelines are estimates from standard nutrition math, assuming strict
-        diet + regular home workout. Not medical advice.
-      </div>
-
       {/* Back to step 1 so details can be edited (matches the reference). */}
       <button
         type="button"
@@ -2045,7 +2058,6 @@ export default function Onboarding() {
     activity: null,
     freq: null,
     name: "",
-    email: "",
     phone: "",
     preferredSlots: [],
   });
@@ -2402,13 +2414,11 @@ export default function Onboarding() {
   };
 
   const phoneOk = /^[6-9]\d{9}$/.test(a.phone);
-  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email.trim());
 
   // The single-page form is submittable only when every required choice is made
   // — the same gates the old per-step Next buttons enforced.
   const formComplete =
     phoneOk &&
-    emailOk &&
     !!a.name.trim() &&
     !!a.goal &&
     !!a.gender &&
@@ -2422,13 +2432,43 @@ export default function Onboarding() {
 
   // Handle "Get My Plan" — only generates and displays the plan (no DB write, no WhatsApp)
   const handleFinalize = async () => {
-    if (!phoneOk || !a.name.trim() || !emailOk) return;
+    if (!phoneOk || !a.name.trim()) return;
     setIsFinalizing(true);
     setFinalizationError("");
 
     try {
       // Save step 8 details to onboarding session
       await saveStep(8);
+
+      // Persist every value the user entered to the existing `customers` table
+      // now, so the record is available in Sales Admin even if they never tap
+      // "Order this plan on WhatsApp" (that later save updates this same row
+      // with the finalised meal plan — the API upserts by phone, no duplicates).
+      // Non-blocking on purpose: a DB hiccup must never stop the user from
+      // seeing their plan, and the order save retries the same upsert.
+      const saved = await saveCustomerToDb({
+        name: a.name,
+        phone: a.phone,
+        goal: a.goal,
+        age: a.age,
+        gender: a.gender,
+        height: a.height,
+        weight: a.weight,
+        food: a.food,
+        activity: a.activity,
+        freq: a.freq,
+        loc_status: loc.status,
+        loc_km: loc.km,
+        loc_fee: loc.fee,
+        loc_lat: loc.lat,
+        loc_lng: loc.lng,
+      });
+      if (!saved.ok) {
+        console.error("[Onboarding] Failed to save customer details:", saved.error);
+        pushToast(
+          "We couldn't save your details just now — we'll save them again when you place your order.",
+        );
+      }
 
       // ─── Supabase profile sync if already logged in ───
       const oldSupabase = getSupabaseClient();
@@ -2519,7 +2559,9 @@ export default function Onboarding() {
                 margin: "0 0 18px",
               }}
             >
-              We count
+              We 
+              <br />
+              count
               <br />
               <span style={{ color: C.yolk }}>protein.</span>
             </h1>
@@ -2883,18 +2925,6 @@ export default function Onboarding() {
                 </div>
               </WzField>
 
-              <WzField label="Your email">
-                <TextField
-                  name="email"
-                  type="email"
-                  inputMode="email"
-                  autoComplete="email"
-                  value={a.email}
-                  onChange={(v) => set("email", v)}
-                  placeholder="you@example.com"
-                />
-              </WzField>
-
               <WzField label="Delivery location">
                 {loc.status === "idle" || loc.status === "loading" ? (
                   <div>
@@ -3226,46 +3256,49 @@ export default function Onboarding() {
         ))}
       </div>
 
-      <FitnessScene
-        style={{ position: "fixed", zIndex: 0 }}
-        opacity={0.4}
-        safeWidth={step === 1 || step === 2 ? 560 : 440}
-        mobileCast={step === 0}
-      />
       <div
         className="mx-auto fuelbox-onboarding-main"
         style={{ maxWidth: step === 1 || step === 2 ? 560 : 440, padding: "0 22px 48px", position: "relative", zIndex: 1 }}
       >
+        {/* Header: 3-column grid keeps the logo horizontally centered on every
+            step — equal `minmax(0,1fr)` side columns mean the Back button (only
+            on step 1) never shifts the logo off-center. */}
         <div
-          className="flex items-center justify-center sm:justify-between gap-3"
-          style={{ padding: "20px 0 14px" }}
+          className="grid items-center gap-3"
+          style={{
+            padding: "20px 0 14px",
+            gridTemplateColumns: "minmax(0,1fr) auto minmax(0,1fr)",
+          }}
         >
-          <div className="flex flex-1 min-w-0 justify-center sm:justify-start items-center" style={{ display: "flex", alignItems: "center", minWidth: 0, flex: "1 1 auto" }}>
+          <div />
+          <div className="flex items-center justify-center">
             <FuelBoxLogo />
           </div>
-          {step === 1 && (
-            <motion.button
-              onClick={() => saveStep(0)}
-              className="shrink-0"
-              whileTap={{ scale: 0.985 }}
-              whileHover={{ y: -1 }}
-              transition={{ duration: 0.16, ease: EASE_OUT }}
-              style={{
-                background: "transparent",
-                border: `1px solid ${C.line}`,
-                borderRadius: 8,
-                color: C.muted,
-                fontFamily: FONT_BODY,
-                fontSize: 12,
-                fontWeight: 600,
-                padding: "6px 12px",
-                cursor: "pointer",
-                flexShrink: 0,
-              }}
-            >
-              ← Back
-            </motion.button>
-          )}
+          <div style={{ justifySelf: "end", minWidth: 0 }}>
+            {step === 1 && (
+              <motion.button
+                onClick={() => saveStep(0)}
+                className="shrink-0"
+                whileTap={{ scale: 0.985 }}
+                whileHover={{ y: -1 }}
+                transition={{ duration: 0.16, ease: EASE_OUT }}
+                style={{
+                  background: "transparent",
+                  border: `1px solid ${C.line}`,
+                  borderRadius: 8,
+                  color: C.muted,
+                  fontFamily: FONT_BODY,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  padding: "6px 12px",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                }}
+              >
+                ← Back
+              </motion.button>
+            )}
+          </div>
         </div>
         <AnimatePresence mode="wait" initial={false}>
           <motion.div

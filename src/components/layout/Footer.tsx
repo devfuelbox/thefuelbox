@@ -125,9 +125,6 @@ export default function Footer() {
         overflow: "hidden",
       }}
     >
-      {/* Decorative blobs — animated via CSS class in globals.css */}
-      <div className="footer-blob-1" />
-      <div className="footer-blob-2" />
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8 relative z-10">
         <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
           <div className="min-w-0 flex flex-col items-center sm:items-start text-center sm:text-left">

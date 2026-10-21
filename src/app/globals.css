@@ -50,6 +50,16 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
+/* ── Admin shell background ────────────────────────────────────────────────────
+   One shared gradient for the whole Sales Admin area (dashboard, clients,
+   onboarding, payments, subscriptions, …) so it never has to be duplicated per
+   page. Applied on the admin layout root; content cards keep their own light
+   surfaces so everything stays readable. */
+.admin-surface {
+  background: linear-gradient(135deg, #e2f0e2, #fde8d8);
+  color: #1A231D;
+}
+
 /* ── Performance: defer rendering of below-fold sections ── */
 /* content-visibility: auto skips paint/layout for off-screen sections */
 section:not(#hero-section) {
@@ -124,34 +134,6 @@ img[width][height] {
 @keyframes footerBlob2 {
   0%   { transform: translate(0, 0) rotate(0deg) scale(1); }
   100% { transform: translate(-30px, -30px) rotate(-15deg) scale(1.08); }
-}
-
-/* ── Footer blob decorative elements ── */
-.footer-blob-1 {
-  position: absolute;
-  width: 400px;
-  height: 400px;
-  border-radius: 60% 40% 55% 45% / 50% 60% 40% 50%;
-  background: radial-gradient(ellipse at center, rgba(22, 163, 74, 0.12) 0%, transparent 70%);
-  bottom: -100px;
-  left: -80px;
-  pointer-events: none;
-  animation: footerBlob1 14s ease-in-out infinite alternate;
-  /* Keep on GPU layer to avoid main thread layout work */
-  will-change: transform;
-}
-
-.footer-blob-2 {
-  position: absolute;
-  width: 350px;
-  height: 350px;
-  border-radius: 45% 55% 40% 60% / 60% 40% 55% 45%;
-  background: radial-gradient(ellipse at center, rgba(234, 88, 12, 0.1) 0%, transparent 70%);
-  top: -80px;
-  right: -60px;
-  pointer-events: none;
-  animation: footerBlob2 18s ease-in-out infinite alternate;
-  will-change: transform;
 }
 
 /* ── Component utility classes ──────────────────────────────────────────────── */
