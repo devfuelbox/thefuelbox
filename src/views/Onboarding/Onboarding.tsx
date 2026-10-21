@@ -1411,11 +1411,11 @@ function Result({
       (s: number, m: any) => s + m.items.reduce((x: number, it: any) => x + kOf(ing, it.id, it.g), 0),
       0,
     );
-    const totalFoodItems = planToUse.meals.reduce((s: number, m: any) => s + m.items.length, 0);
-    if (totalDeliveredItems === 0 || totalDeliveredCalories === 0 || totalFoodItems === 0) {
-      showToast("Please select at least one food item before placing the order.");
-      return;
-    }
+    // const totalFoodItems = planToUse.meals.reduce((s: number, m: any) => s + m.items.length, 0);
+    // if (totalDeliveredItems === 0 || totalDeliveredCalories === 0 || totalFoodItems === 0) {
+    //   showToast("Please select at least one food item before placing the order.");
+    //   return;
+    // }
 
     setIsOrdering(true);
     setOrderError("");
