@@ -75,6 +75,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     navItems.push(
       { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
       { href: '/admin/menu', label: 'Menu & Prices', icon: Utensils },
+      {href: '/admin/enquire', label: 'Enquiries', icon: BarChart3 },
     );
   }
 
@@ -96,6 +97,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   if (userRole === 'sales') {
     navItems.push(
       { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
+      { href: '/admin/enquire', label: 'Enquiries', icon: BarChart3 },
       { href: '/admin/roles/sales', label: 'Clients', icon: UserCheck },
       { href: '/admin/roles/sales/new', label: 'New Client', icon: UserPlus },
     );

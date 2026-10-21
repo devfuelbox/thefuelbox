@@ -673,6 +673,7 @@ test("the model and seed files define the goal_portions column", () => {
 test("every meal-plan save route validates before it persists", () => {
   const routes = [
     "onboarding/customer/route.ts",
+    "onboarding/enquiry/route.ts",
     path.join("onboarding", "customer", "[id]", "meal-plan", "route.ts"),
     "customers/route.ts",
     path.join("roles", "sales", "enquiries", "route.ts"),

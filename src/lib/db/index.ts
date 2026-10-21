@@ -177,6 +177,25 @@ export function defineModels(sequelize: Sequelize) {
     meal_plan: { type: DataTypes.JSON, defaultValue: [] },
     daily_calories: { type: DataTypes.DECIMAL(8, 1), allowNull: true },
     daily_protein: { type: DataTypes.DECIMAL(7, 1), allowNull: true },
+    // The rest of the macro targets the onboarding calculates. Calories and
+    // protein predate the Customer Enquiries feature; these were added with it
+    // so the admin reads the full macro picture from columns instead of
+    // parsing it back out of the summary text. Nullable — the additive schema
+    // sync adds them to existing rows without touching their data.
+    daily_carbs: { type: DataTypes.DECIMAL(7, 1), allowNull: true },
+    daily_fat: { type: DataTypes.DECIMAL(7, 1), allowNull: true },
+    daily_fiber: { type: DataTypes.DECIMAL(7, 1), allowNull: true },
+    // Body metrics + energy expenditure from the onboarding result screen
+    // (Mifflin-St Jeor). Stored so the admin never has to recompute them.
+    bmi: { type: DataTypes.DECIMAL(4, 1), allowNull: true },
+    bmi_category: { type: DataTypes.STRING, allowNull: true },
+    bmr: { type: DataTypes.DECIMAL(8, 1), allowNull: true },
+    tdee: { type: DataTypes.DECIMAL(8, 1), allowNull: true },
+    water_liters: { type: DataTypes.DECIMAL(4, 1), allowNull: true },
+    // Delivery feasibility captured during onboarding: distance from the
+    // kitchen and whether that zone is free, paid or a waitlist.
+    delivery_km: { type: DataTypes.DECIMAL(6, 2), allowNull: true },
+    delivery_status: { type: DataTypes.STRING, allowNull: true },
     enquiry_date: { type: DataTypes.DATEONLY, allowNull: true },
     service: { type: DataTypes.STRING, defaultValue: 'meal_plan' },
     total_amount: { type: DataTypes.DECIMAL(10, 2), defaultValue: 0 },
@@ -204,6 +223,16 @@ export function defineModels(sequelize: Sequelize) {
     next_payment_date: { type: DataTypes.DATEONLY, allowNull: true },
     follow_up_note: { type: DataTypes.TEXT, allowNull: true },
     follow_up_status: { type: DataTypes.STRING, defaultValue: 'pending' },
+    // Stable fingerprint of a public onboarding submission (phone + goal +
+    // plan targets). The onboarding result auto-saves an enquiry and retries on
+    // refresh/revisit; this key lets the write upsert the same row instead of
+    // stacking duplicates. Null for admin-created enquiries, which are always
+    // distinct records. Added via the additive schema sync — nullable, so
+    // existing rows are unaffected.
+    dedupe_key: { type: DataTypes.STRING, allowNull: true },
+    // Where the enquiry came from: 'onboarding' for the public page's automatic
+    // save, null/other for staff-created rows. Lets the admin UI label them.
+    source: { type: DataTypes.STRING, allowNull: true },
   }, { underscored: true });
 
   const MealPlanSubscription = sequelize.define('meal_plan_subscriptions', {

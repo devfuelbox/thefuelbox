@@ -86,6 +86,29 @@ async function saveCustomerToDb(
   }
 }
 
+// Auto-save the generated result as a Customer Enquiry as soon as it is shown,
+// so it reaches the Sales Admin without the customer tapping "Order on
+// WhatsApp". The endpoint dedupes by phone + plan fingerprint, so re-rendering
+// the result (refresh, revisit, retry) updates the same row. Never throws.
+async function saveEnquiryToDb(
+  payload: Record<string, unknown>,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch("/api/onboarding/enquiry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body: any = await res.json().catch(() => ({}));
+    if (!res.ok || body?.success === false) {
+      return { ok: false, error: body?.error || `Save failed (${res.status})` };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || "Network error" };
+  }
+}
+
 // ─── BUSINESS CONFIG ─────────────────────────────────────
 // Digits only — `wa.me/<number>` rejects any formatting (spaces, dashes, `+`).
 const WA_NUMBER = "917810029931"; // Ajith
@@ -1275,6 +1298,112 @@ function Result({
     fiber: Math.round((fixedTarget.fiber - selectedNutrition.fiber) * 10) / 10,
   }), [fixedTarget, selectedNutrition]);
 
+  // One line under the sticker title: gender · age · height · weight · day.
+  // Prefer the exact day label the user tapped, falling back to the activity label.
+  const activityLine = dayLabel
+    ? dayLabel
+    : a.activity
+      ? ACTIVITY[a.activity].label
+      : "";
+
+  // ─── AUTO-SAVE THE ENQUIRY ───
+  // The moment a goal-specific plan exists, save the full result as a Customer
+  // Enquiry so it is visible in the Sales Admin without any button press.
+  // `savedEnquiryKey` memoises the fingerprint of what was saved: an identical
+  // re-render (refresh / revisit) does not re-POST, and the server also dedupes
+  // by phone + plan, so a retry can never create a second record. The UI is
+  // unaffected — no success banner, only a small inline note while saving and a
+  // retry affordance if the write fails.
+  const [enquiryState, setEnquiryState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const savedEnquiryKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (menu.status !== "ready") return;
+    if (!a.name.trim() || !/^[6-9]\d{9}$/.test(a.phone)) return;
+
+    const delivPerDay = delivFee || 0;
+    // 26-day pack total — the same figure the WhatsApp order message quotes.
+    const totalAmount = Math.round((cov.price + delivPerDay) * 26);
+    const selectedItems = cov.delMeals.flatMap((m: any) =>
+      m.items.map((it: any) => ({ meal: m.name, id: it.id, grams: it.g })),
+    );
+
+    // Fingerprint of everything that shapes the saved enquiry. Unchanged input
+    // ⇒ no repeat write.
+    const key = [
+      a.phone, a.goal, a.food, a.activity, freq,
+      a.height, a.weight,
+      fixedTarget.calories, fixedTarget.protein, fixedTarget.carbs,
+      fixedTarget.fat, fixedTarget.fiber, totalAmount,
+    ].join("|");
+    if (savedEnquiryKey.current === key) return;
+    savedEnquiryKey.current = key;
+
+    const slotsTxt = (a.preferredSlots || []).join(" + ");
+    const locTxt =
+      loc.km != null
+        ? `${loc.km} km from The Fuel Box, Peelamedu — ${loc.status === "free" ? "FREE delivery" : loc.status === "paid" ? `delivery ₹${loc.fee}/day` : "outside zone (waitlist)"}`
+        : "location to be confirmed on WhatsApp";
+    // Human-readable summary of the whole calculation, stored on the enquiry so
+    // the admin sees exactly what the customer was shown.
+    const summary =
+      `BMI ${metrics.bmi.toFixed(1)} (${metrics.bmiCategory}) · BMR ${Math.round(metrics.bmr)} kcal · TDEE ${Math.round(metrics.tdee)} kcal\n` +
+      `Goal: ${a.goal ? GOALS[a.goal].label : ""}${a.goal ? ` (${GOALS[a.goal].plan})` : ""} · ${a.food} · ${activityLine}\n` +
+      `Daily targets: ${fixedTarget.calories} kcal · ${fixedTarget.protein}g protein · ${fixedTarget.carbs}g carbs · ${fixedTarget.fat}g fat · ${fixedTarget.fiber}g fiber · water ${metrics.waterL}L\n` +
+      `Meals per day: ${freq}${slotsTxt ? ` — ${slotsTxt}` : ""} · FuelBox covers ${cov.delProt}g protein/day\n` +
+      `Timeline: ${tl.big} ${tl.sub}\n` +
+      `Plan price: ₹${totalAmount} (26-day pack) · ${locTxt}`;
+
+    setEnquiryState("saving");
+    void saveEnquiryToDb({
+      customer_name: a.name,
+      phone: a.phone,
+      age: a.age,
+      gender: a.gender,
+      height: a.height,
+      weight: a.weight,
+      food_preference: a.food,
+      activity_level: a.activity,
+      goal: a.goal,
+      meals_per_day: freq,
+      selected_food_items: selectedItems,
+      meal_plan: {
+        meals: cov.delMeals,
+        protein: cov.delProt,
+        price: cov.price,
+      },
+      daily_calories: fixedTarget.calories,
+      daily_protein: fixedTarget.protein,
+      daily_carbs: fixedTarget.carbs,
+      daily_fat: fixedTarget.fat,
+      daily_fiber: fixedTarget.fiber,
+      // Body metrics + energy expenditure, exactly as shown on this screen.
+      bmi: Math.round(metrics.bmi * 10) / 10,
+      bmi_category: metrics.bmiCategory,
+      bmr: Math.round(metrics.bmr),
+      tdee: Math.round(metrics.tdee),
+      water_liters: metrics.waterL,
+      // Delivery feasibility the customer was shown. Only a settled zone is
+      // worth storing — "idle"/"loading"/"denied" are transient UI states.
+      delivery_km: loc.km,
+      delivery_status:
+        loc.status === "free" || loc.status === "paid" || loc.status === "out"
+          ? loc.status
+          : null,
+      summary,
+      delivery_time_slot: slotsTxt || null,
+      total_amount: totalAmount,
+      paid_amount: 0,
+    }).then((saved) => {
+      setEnquiryState(saved.ok ? "saved" : "error");
+      if (!saved.ok) {
+        console.error("[Enquiry] Auto-save failed:", saved.error);
+      }
+    });
+  }, [
+    menu.status, a, freq, cov, fixedTarget, metrics, tl, loc, delivFee, activityLine,
+  ]);
+
   // ─── PER-MEAL CALORIE LIMIT (fixed, reusable) ───
   const [toast, setToast] = useState<string | null>(null);
   const showToast = useCallback((msg: string) => {
@@ -1498,13 +1627,6 @@ function Result({
     setIsOrdering(false);
   };
 
-  // One line under the sticker title: gender · age · height · weight · day.
-  // Prefer the exact day label the user tapped, falling back to the activity label.
-  const activityLine = dayLabel
-    ? dayLabel
-    : a.activity
-      ? ACTIVITY[a.activity].label
-      : "";
   const detailsLine = [
     a.gender || "",
     a.age ? `${a.age} yrs` : "",
@@ -1544,6 +1666,48 @@ function Result({
           menu_items table ({menu.message}). Your plan and price cannot be
           calculated until it is reachable — please reload to try again.
         </div>
+      )}
+
+      {/* Enquiry auto-save status. Deliberately quiet: a single muted line so
+          the result layout is unchanged. It only becomes prominent on failure,
+          where it offers a retry. */}
+      {menu.status === "ready" && enquiryState !== "saved" && (
+        <p
+          role="status"
+          style={{
+            fontFamily: FONT_BODY,
+            fontSize: 12.5,
+            color: enquiryState === "error" ? C.nonveg : C.muted,
+            margin: "0 0 12px",
+          }}
+        >
+          {enquiryState === "error" ? (
+            <>
+              We couldn't send your details to our team automatically.{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  savedEnquiryKey.current = null;
+                  setEnquiryState("idle");
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  color: CTA_GREEN,
+                  font: "inherit",
+                  fontWeight: 700,
+                  textDecoration: "underline",
+                  cursor: "pointer",
+                }}
+              >
+                Retry
+              </button>
+            </>
+          ) : (
+            "Saving your details for our team…"
+          )}
+        </p>
       )}
 
       <Eyebrow>Here's your number</Eyebrow>

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { Op } from 'sequelize';
 import { getDbModels } from '@/lib/db';
 import { requireRole } from '@/lib/auth';
 import { validateSavedMealPlan } from '@/lib/mealPlanValidation';
@@ -37,6 +38,16 @@ export async function POST(req: Request) {
       meal_plan: body.meal_plan || [],
       daily_calories: body.daily_calories || null,
       daily_protein: body.daily_protein || null,
+      daily_carbs: body.daily_carbs || null,
+      daily_fat: body.daily_fat || null,
+      daily_fiber: body.daily_fiber || null,
+      bmi: body.bmi || null,
+      bmi_category: body.bmi_category || null,
+      bmr: body.bmr || null,
+      tdee: body.tdee || null,
+      water_liters: body.water_liters || null,
+      delivery_km: body.delivery_km || null,
+      delivery_status: body.delivery_status || null,
       enquiry_date: body.enquiry_date || null,
       service: body.service || 'meal_plan',
       total_amount: Number(body.total_amount) || 0,
@@ -92,7 +103,10 @@ export async function GET(req: Request) {
     const where: any = {};
 
     if (role === 'sales') {
-      where.assigned_sales_id = sub;
+      // A sales user sees their own enquiries plus any unassigned ones — the
+      // public onboarding auto-save has no owner, so it must still be visible
+      // (otherwise the automatic enquiries would never appear for sales staff).
+      where[Op.or] = [{ assigned_sales_id: sub }, { assigned_sales_id: null }];
     }
 
     const rows = await (CustomerEnquiry as any).findAll({
@@ -163,6 +177,16 @@ export async function PATCH(req: Request) {
     if (updates.meal_plan !== undefined) fields.meal_plan = updates.meal_plan;
     if (updates.daily_calories !== undefined) fields.daily_calories = Number(updates.daily_calories);
     if (updates.daily_protein !== undefined) fields.daily_protein = Number(updates.daily_protein);
+    if (updates.daily_carbs !== undefined) fields.daily_carbs = Number(updates.daily_carbs);
+    if (updates.daily_fat !== undefined) fields.daily_fat = Number(updates.daily_fat);
+    if (updates.daily_fiber !== undefined) fields.daily_fiber = Number(updates.daily_fiber);
+    if (updates.bmi !== undefined) fields.bmi = Number(updates.bmi);
+    if (updates.bmi_category !== undefined) fields.bmi_category = updates.bmi_category;
+    if (updates.bmr !== undefined) fields.bmr = Number(updates.bmr);
+    if (updates.tdee !== undefined) fields.tdee = Number(updates.tdee);
+    if (updates.water_liters !== undefined) fields.water_liters = Number(updates.water_liters);
+    if (updates.delivery_km !== undefined) fields.delivery_km = Number(updates.delivery_km);
+    if (updates.delivery_status !== undefined) fields.delivery_status = updates.delivery_status;
     if (updates.sales_notes !== undefined) fields.sales_notes = updates.sales_notes;
     if (updates.enquiry_date !== undefined) fields.enquiry_date = updates.enquiry_date;
     if (updates.service !== undefined) fields.service = updates.service;
