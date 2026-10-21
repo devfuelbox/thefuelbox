@@ -87,7 +87,8 @@ async function saveCustomerToDb(
 }
 
 // ─── BUSINESS CONFIG ─────────────────────────────────────
-const WA_NUMBER = "9178100 29931"; // Ajith
+// Digits only — `wa.me/<number>` rejects any formatting (spaces, dashes, `+`).
+const WA_NUMBER = "917810029931"; // Ajith
 // The Fuel Box, 14 A2, Masakalipalayam Road, Metha Layout, POAD, Peelamedu,
 // Coimbatore, Tamil Nadu 641004. Every distance, free/paid zone and delivery
 // fee on this page is measured from this one point — the customer's own
@@ -1194,7 +1195,11 @@ function Result({
     return keys;
   }, [ing, goalKey]);
 
-  const plan = buildPlan(a, vary, ing, goalFoods);
+  // The solver is pure, so this only needs to run when its inputs change.
+  // Without this it re-ran on *every* render — including each animation frame
+  // of the protein count-up below — which is what made the result page feel
+  // like it hung. Same inputs, same numbers, just computed once.
+  const plan = useMemo(() => buildPlan(a, vary, ing, goalFoods), [a, vary, ing, goalFoods]);
 
   const [customPlan, setCustomPlan] = useState<any>(null);
   const [isOrdering, setIsOrdering] = useState(false);
@@ -1205,7 +1210,10 @@ function Result({
   }, [vary, ing, goalFoods]);
 
   const planToUse = customPlan || plan;
-  const cov = coverage(planToUse, freq, ing, a.preferredSlots);
+  const cov = useMemo(
+    () => coverage(planToUse, freq, ing, a.preferredSlots),
+    [planToUse, freq, ing, a.preferredSlots],
+  );
   const tl = timeline(a.goal, freq);
   const metrics = calculateHealthMetrics(a);
   const n = useCountUp(metrics.proteinG);
@@ -1322,7 +1330,10 @@ function Result({
       `Targets: ${fixedTarget.calories} kcal · ${fixedTarget.protein}g protein · ${fixedTarget.carbs}g carbs · ${fixedTarget.fat}g fat · ${fixedTarget.fiber}g fiber\n` +
       `FuelBox covers: ${cov.delProt}g protein/day\n` +
       `${locTxt}`;
-    return `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(msg)}`;
+    // `wa.me` only accepts a digits-only number. Strip anything else so a
+    // formatted number can never produce an invalid URL again.
+    const digits = WA_NUMBER.replace(/\D/g, "");
+    return `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`;
   };
 
   const recalculatePlan = (updatedMeals: any[]) => {
@@ -1409,6 +1420,14 @@ function Result({
     setIsOrdering(true);
     setOrderError("");
 
+    // Open WhatsApp synchronously, while the click is still an active user
+    // gesture. Opening a tab *after* an `await` is treated as a non-gesture
+    // open and gets blocked by popup blockers — which is what made this button
+    // appear to fail. The DB save below runs in parallel; it is non-blocking
+    // because the order must never depend on a database round-trip.
+    const waWindow = window.open(waLink(), "_blank");
+    if (waWindow) waWindow.opener = null;
+
     // Save only the FuelBox-delivered meals (based on the user's chosen meal
     // count/slots), so admin views show exactly what was ordered — not the
     // full 3-meal day.
@@ -1470,8 +1489,12 @@ function Result({
       // Non-blocking — still open WhatsApp even if DB write fails
     }
 
-    // Open WhatsApp
-    window.open(waLink(), "_blank");
+    // The tab was already opened above (synchronously). If a popup blocker
+    // stopped it, fall back to same-tab navigation so the order still goes
+    // through rather than failing silently.
+    if (!waWindow) {
+      window.location.href = waLink();
+    }
     setIsOrdering(false);
   };
 
@@ -2437,16 +2460,18 @@ export default function Onboarding() {
     setFinalizationError("");
 
     try {
-      // Save step 8 details to onboarding session
-      await saveStep(8);
-
       // Persist every value the user entered to the existing `customers` table
-      // now, so the record is available in Sales Admin even if they never tap
+      // so the record is available in Sales Admin even if they never tap
       // "Order this plan on WhatsApp" (that later save updates this same row
       // with the finalised meal plan — the API upserts by phone, no duplicates).
-      // Non-blocking on purpose: a DB hiccup must never stop the user from
-      // seeing their plan, and the order save retries the same upsert.
-      const saved = await saveCustomerToDb({
+      //
+      // Fire-and-forget: the plan on screen is computed locally and does not
+      // depend on any of this. Awaiting the network round-trip is what delayed
+      // the result page, so the writes now run in the background and only
+      // surface a toast if they fail.
+      void saveStep(8);
+
+      void saveCustomerToDb({
         name: a.name,
         phone: a.phone,
         goal: a.goal,
@@ -2462,15 +2487,16 @@ export default function Onboarding() {
         loc_fee: loc.fee,
         loc_lat: loc.lat,
         loc_lng: loc.lng,
+      }).then((saved) => {
+        if (!saved.ok) {
+          console.error("[Onboarding] Failed to save customer details:", saved.error);
+          pushToast(
+            "We couldn't save your details just now — we'll save them again when you place your order.",
+          );
+        }
       });
-      if (!saved.ok) {
-        console.error("[Onboarding] Failed to save customer details:", saved.error);
-        pushToast(
-          "We couldn't save your details just now — we'll save them again when you place your order.",
-        );
-      }
 
-      // ─── Supabase profile sync if already logged in ───
+      // ─── Supabase profile sync if already logged in (background) ───
       const oldSupabase = getSupabaseClient();
       if (loggedInUser && oldSupabase) {
         const mappedGoal =
@@ -2488,7 +2514,7 @@ export default function Onboarding() {
               ? "eggetarian"
               : "non_vegetarian";
 
-        await updateUserProfile({
+        void updateUserProfile({
           full_name: a.name,
           phone: a.phone,
           gender: a.gender?.toLowerCase() as any,
@@ -2496,6 +2522,8 @@ export default function Onboarding() {
           weight: a.weight,
           fitness_goal: mappedGoal as any,
           diet_type: mappedDiet as any,
+        }).catch((err: any) => {
+          console.error("[Onboarding] Supabase profile sync failed:", err);
         });
       }
 
@@ -2511,7 +2539,7 @@ export default function Onboarding() {
         );
       } catch (_) {}
 
-      // Show the results / meal plan screen
+      // Show the results / meal plan screen right away — no network wait.
       setStep(9);
     } catch (err: any) {
       console.error("Finalization failed:", err);
