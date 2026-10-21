@@ -75,7 +75,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     navItems.push(
       { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
       { href: '/admin/menu', label: 'Menu & Prices', icon: Utensils },
-      {href: '/admin/enquire', label: 'Enquiries', icon: BarChart3 },
+      {href: '/admin/enquire', label: 'Enquiries', icon: BarChart3 }, 
     );
   }
 
