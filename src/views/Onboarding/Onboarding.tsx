@@ -3527,13 +3527,13 @@ function OnboardingBottomNav() {
     {
       label: "Menu",
       icon: Utensils,
-      href: "/menu",
+      href: "/",
       isActive: (p: string) => p.startsWith("/menu"),
     },
     {
       label: "Plans",
       icon: Receipt,
-      href: "/plans",
+      href: "/",
       isActive: (p: string) => p.startsWith("/plans"),
     },
   ];
