@@ -48,69 +48,16 @@ function decorate(row: ClientRow) {
   };
 }
 
-/**
- * Seed the clients table the first time it is found empty, so the Clients page
- * reflects work already done in the older Sales flow (customers + enquiries)
- * instead of starting blank. Existing rows are never modified — this only runs
- * when there are zero clients — and the phone is the join key.
- */
-async function backfillIfEmpty(Client: any, Customer: any, CustomerEnquiry: any, ClientPlan: any, ClientEvent: any) {
-  const existing = await (Client as any).count();
-  if (existing > 0) return;
-
-  const customers = await (Customer as any).findAll({ order: [['created_at', 'ASC']], raw: true });
-  if (!customers.length) return;
-
-  const enquiries = await (CustomerEnquiry as any).findAll({ raw: true });
-  const enquiryByPhone: Record<string, any> = {};
-  for (const e of enquiries) {
-    const key = String(e.phone || '').replace(/\D/g, '').slice(-10);
-    if (key && !enquiryByPhone[key]) enquiryByPhone[key] = e;
-  }
-
-  let no = 0;
-  for (const c of customers) {
-    const phone = String(c.phone || '').replace(/\D/g, '').slice(-10);
-    if (!phone) continue;
-    const enq = enquiryByPhone[phone] || null;
-    no += 1;
-
-    const planType: PlanType =
-      Number(enq?.total_amount) > 0 && Number(enq?.total_amount) <= 4000 ? 'trial' : 'package';
-    const duration = Math.max(1, Math.min(planMax(planType), Number(c.freq) || 3));
-    const startDate = enq?.enquiry_date || (c.created_at ? String(c.created_at).slice(0, 10) : null);
-
-    const record = await (Client as any).create({
-      client_no: no,
-      name: c.name || enq?.customer_name || 'Client',
-      phone,
-      address: enq?.address || c.address || null,
-      goal: c.goal || enq?.goal || null,
-      plan_type: planType,
-      duration_days: duration,
-      boxes_per_day: Number(c.freq) || 1,
-      schedule: 'mon_fri',
-      start_date: startDate,
-      end_date: startDate ? computeEndDate(startDate, duration, 'mon_fri', []) : null,
-      total_amount: Number(enq?.total_amount) || Number(c.meal_plan_price) || 0,
-      paid_amount: Number(enq?.paid_amount) || 0,
-      payment_history: enq?.payment_history || [],
-      status: 'active',
-    });
-
-    // Give each backfilled client its plan + creation history so the detail
-    // page is complete without a second pass.
-    await ensurePlans(ClientPlan, ClientEvent, record);
-  }
-}
+/* Legacy auto-backfill from customers/enquiries was removed: it re-created
+   clients when the table became empty, resurrecting intentionally deleted
+   clients on refresh. */
 
 export async function GET(req: Request) {
   const auth = requireRole(req, ROLES);
   if (!auth.authorized) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
 
   try {
-    const { Client, Customer, CustomerEnquiry, ClientPlan, ClientEvent } = await getDbModels();
-    await backfillIfEmpty(Client, Customer, CustomerEnquiry, ClientPlan, ClientEvent);
+    const { Client, ClientPlan, ClientEvent } = await getDbModels();
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
@@ -695,7 +642,7 @@ export async function PATCH(req: Request) {
   }
 }
 
-/** Safe delete: remove the client record only, leaving other tables untouched. */
+/** Safe delete: remove the client and its client-scoped plan/event records. */
 export async function DELETE(req: Request) {
   const auth = requireRole(req, ROLES);
   if (!auth.authorized) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
@@ -705,10 +652,13 @@ export async function DELETE(req: Request) {
     const id = searchParams.get('id') || '';
     if (!id) return NextResponse.json({ message: 'Client id is required' }, { status: 400 });
 
-    const { Client } = await getDbModels();
+    const { Client, ClientPlan, ClientEvent } = await getDbModels();
     const record: any = await (Client as any).findByPk(id);
     if (!record) return NextResponse.json({ message: 'Client not found' }, { status: 404 });
 
+    // Remove client-owned plan/event records so deleted clients cannot contribute to totals or history.
+    await (ClientPlan as any).destroy({ where: { client_id: id } });
+    await (ClientEvent as any).destroy({ where: { client_id: id } });
     await record.destroy();
     return NextResponse.json({ message: 'Client deleted', id });
   } catch (err) {

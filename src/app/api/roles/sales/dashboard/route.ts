@@ -58,16 +58,19 @@ export async function GET(req: Request) {
       await ensurePlans(ClientPlan, ClientEvent, row);
     }
     const planRows = await (ClientPlan as any).findAll({ order: [['created_at', 'ASC']], raw: true });
+    const clientIdSet = new Set(clientRows.map((row: AnyRow) => String(plain(row).id)));
+    // Exclude orphan plans from deleted clients so totals/lists reflect only existing clients.
+    const activePlanRows = planRows.filter((row: AnyRow) => clientIdSet.has(String(plain(row).client_id)));
 
     const plansByClient: Record<string, AnyRow[]> = {};
-    for (const p of planRows) {
+    for (const p of activePlanRows) {
       const plan = plain(p);
       (plansByClient[plan.client_id] ||= []).push(plan);
     }
 
     // ── Boxes to prepare over the window, split by meal ──
     let boxes = emptyBoxes();
-    for (const plan of planRows) {
+    for (const plan of activePlanRows) {
       const p = plain(plan);
       boxes = addBoxMeals(boxes, boxesForPlan(p as PlanLike, window_.from, window_.to));
     }
@@ -148,7 +151,7 @@ export async function GET(req: Request) {
     let packagePaid = 0;
     let outstanding = 0;
 
-    for (const plan of planRows) {
+    for (const plan of activePlanRows) {
       const p = plain(plan);
       const paid = num(p.paid_amount);
       const balance = Math.max(0, num(p.total_amount) - paid);
